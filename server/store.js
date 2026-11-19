@@ -64,8 +64,21 @@ function pgBackend(url) {
   };
 }
 
+// Phone keyboards and copy-paste often add spaces, quotes or typographic dashes to a pasted URL. None of those can
+// appear in a valid connection string, so undo them, then log the host (never the password) to make problems visible.
+const DASHES = new Set([0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212]);
+function cleanDatabaseUrl(raw) {
+  const s = Array.from(String(raw), (ch) => (DASHES.has(ch.codePointAt(0)) ? '-' : ch)).join('');
+  return s.replace(/\s+/g, '').replace(/^["']+|["']+$/g, '');
+}
+function describeDatabaseUrl(url) {
+  try { const u = new URL(url); return `${u.protocol}//${u.hostname}${u.pathname}`; } catch (e) { return 'an invalid URL'; }
+}
+
 function createStore() {
-  const b = process.env.DATABASE_URL ? pgBackend(process.env.DATABASE_URL) : jsonBackend(process.env.DATA_FILE || path.join(__dirname, 'data', 'store.json'));
+  let dbUrl = process.env.DATABASE_URL ? cleanDatabaseUrl(process.env.DATABASE_URL) : '';
+  if (dbUrl) console.log('Database:', describeDatabaseUrl(dbUrl));
+  const b = dbUrl ? pgBackend(dbUrl) : jsonBackend(process.env.DATA_FILE || path.join(__dirname, 'data', 'store.json'));
   return {
     kind: b.kind,
     init: () => b.init(),
