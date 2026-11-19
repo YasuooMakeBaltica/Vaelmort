@@ -68,11 +68,17 @@ function pgBackend(url) {
 // appear in a valid connection string, so undo them, then log the host (never the password) to make problems visible.
 const DASHES = new Set([0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212]);
 function cleanDatabaseUrl(raw) {
-  const s = Array.from(String(raw), (ch) => (DASHES.has(ch.codePointAt(0)) ? '-' : ch)).join('');
-  return s.replace(/\s+/g, '').replace(/^["']+|["']+$/g, '');
+  const s = Array.from(String(raw), (ch) => (DASHES.has(ch.codePointAt(0)) ? '-' : ch)).join('').replace(/\s+/g, '');
+  // pull the URL out of wrappers like `psql 'postgresql://...'` or `DATABASE_URL=postgresql://...`
+  const m = s.match(/postgres(?:ql)?:\/\/[^'"`]+/);
+  return (m ? m[0] : s).replace(/^["'`]+|["'`]+$/g, '');
 }
+// the value with the password hidden, for the log
+const maskDatabaseUrl = (url) => url.replace(/(:\/\/[^:/@]*:)[^@/]*(@?)/, '$1***$2').replace(/(password=)[^&]*/i, '$1***');
 function describeDatabaseUrl(url) {
-  try { const u = new URL(url); return `${u.protocol}//${u.hostname}${u.pathname}`; } catch (e) { return 'an invalid URL'; }
+  try { const u = new URL(url); if (!u.hostname) throw new Error('no host'); return `${u.protocol}//${u.hostname}${u.pathname}`; } catch (e) {
+    return `an invalid URL (${url.length} characters): ${maskDatabaseUrl(url)}`;
+  }
 }
 
 function createStore() {
