@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "frameW": 96,
+  "frameH": 96,
+  "anchor": {
+    "x": 48,
+    "y": 77,
+    "note": "ground point under the character center (feet); place this pixel at the entity world position"
+  },
+  "directions": [
+    "S",
+    "SE",
+    "E",
+    "NE",
+    "N",
+    "NW",
+    "W",
+    "SW"
+  ],
+  "directionNote": "row index = direction the hero faces on screen; S = toward the camera / bottom of screen, E = screen right",
+  "heroes": {
+    "doomknight": {
+      "name": "Doom Knight",
+      "glow": "#e85325",
+      "animations": {
+        "idle": {
+          "file": "sheets/doomknight_idle.png",
+          "frames": 6,
+          "fps": 6,
+          "loop": true
+        },
+        "run": {
+          "file": "sheets/doomknight_run.png",
+          "frames": 8,
+          "fps": 12,
+          "loop": true
+        },
+        "attack": {
+          "file": "sheets/doomknight_attack.png",
+          "frames": 8,
+          "fps": 12,
+          "loop": false
+        }
+      }
+    },
+    "necromancer": {
+      "name": "Necromancer",
+      "glow": "#3ccf97",
+      "animations": {
+        "idle": {
+          "file": "sheets/necromancer_idle.png",
+          "frames": 8,
+          "fps": 8,
+          "loop": true
+        },
+        "run": {
+          "file": "sheets/necromancer_run.png",
+          "frames": 8,
+          "fps": 12,
+          "loop": true
+        },
+        "attack": {
+          "file": "sheets/necromancer_attack.png",
+          "frames": 8,
+          "fps": 12,
+          "loop": false
+        }
+      }
+    },
+    "warlord": {
+      "name": "Warlord",
+      "glow": "#4d9bff",
+      "animations": {
+        "idle": {
+          "file": "sheets/warlord_idle.png",
+          "frames": 6,
+          "fps": 6,
+          "loop": true
+        },
+        "run": {
+          "file": "sheets/warlord_run.png",
+          "frames": 8,
+          "fps": 12,
+          "loop": true
+        },
+        "attack": {
+          "file": "sheets/warlord_attack.png",
+          "frames": 8,
+          "fps": 12,
+          "loop": false
+        }
+      }
+    },
+    "assassin": {
+      "name": "Assassin",
+      "glow": "#bf72f0",
+      "animations": {
+        "idle": {
+          "file": "sheets/assassin_idle.png",
+          "frames": 6,
+          "fps": 7,
+          "loop": true
+        },
+        "run": {
+          "file": "sheets/assassin_run.png",
+          "frames": 8,
+          "fps": 14,
+          "loop": true
+        },
+        "attack": {
+          "file": "sheets/assassin_attack.png",
+          "frames": 7,
+          "fps": 14,
+          "loop": false
+        }
+      }
+    },
+    "hunter": {
+      "name": "Witch Hunter",
+      "glow": "#d6e4f2",
+      "animations": {
+        "idle": {
+          "file": "sheets/hunter_idle.png",
+          "frames": 6,
+          "fps": 6,
+          "loop": true
+        },
+        "run": {
+          "file": "sheets/hunter_run.png",
+          "frames": 8,
+          "fps": 12,
+          "loop": true
+        },
+        "attack": {
+          "file": "sheets/hunter_attack.png",
+          "frames": 7,
+          "fps": 12,
+          "loop": false
+        }
+      }
+    },
+    "druid": {
+      "name": "Druid",
+      "glow": "#a6ec4f",
+      "animations": {
+        "idle": {
+          "file": "sheets/druid_idle.png",
+          "frames": 8,
+          "fps": 8,
+          "loop": true
+        },
+        "run": {
+          "file": "sheets/druid_run.png",
+          "frames": 8,
+          "fps": 12,
+          "loop": true
+        },
+        "attack": {
+          "file": "sheets/druid_attack.png",
+          "frames": 8,
+          "fps": 12,
+          "loop": false
+        }
+      }
+    }
+  }
+}
