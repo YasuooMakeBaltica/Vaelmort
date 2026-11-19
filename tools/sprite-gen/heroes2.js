@@ -76,14 +76,6 @@
       if (q[2] > 1.6 && q[1] < 0.2 && q[1] > -2.4 && near(Math.abs(q[0]), 1.4, 0.25)) return { m: 'violet', b: 1 };   // painted tear lines
       return 'white';
     }));
-    // violet scarf: long, streaming back and to the right
-    const sc0 = parts.length;
-    const scarf = [[1.2, 35.8, 1.8], [2.6, 34.6, -2.6], [4.0, 32.6, -6.2], [5.4, 31.0, -9.6], [7.0, 28.8, -12.4], [8.6, 27.8, -14.8]];
-    for (let i = 0; i < scarf.length - 1; i++) {
-      const a = scarf[i], b = scarf[i + 1], w = 1.5 - i * 0.17;
-      parts.push(P((p) => sd.capsule(p, a, b, w) + 0.2 * Math.sin(p[2] * 1.7), () => (i % 2 ? { m: 'violet', b: -1 } : 'violet')));
-    }
-    H.R.wrapRange(parts, sc0, parts.length, H.R.xf([1.2, 35.8, 1.8], [1.2, 35.8, 1.8], H.R.mm(H.R.ry(pose.scarfY || 0), H.R.rx(-(pose.scarf || 0)))));
     H.R.wrap(parts, u0, U);
     // arms: right dagger thrust low and forward, left dagger raised back in reverse grip
     const hRr = [-5.8, 25.0, 11.6], hLr = [6.4, 33.6, 7.6];

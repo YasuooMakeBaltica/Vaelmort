@@ -1,0 +1,17 @@
+{
+  "name": "vaelmort",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Vaelmort: isometric pixel-art MMORPG prototype",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "pg": "^8.11.3",
+    "ws": "^8.16.0"
+  }
+}
