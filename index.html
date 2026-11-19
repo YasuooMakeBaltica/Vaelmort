@@ -1,0 +1,165 @@
+<title>Vaelmort Showcase</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;800&family=Silkscreen&family=Inter:wght@400;600&display=swap">
+<style>
+  /* Layout: full-bleed pixel canvas, HUD pinned to the four corners, intro card centered over a live attract view. */
+  :root {
+    --void: #07060b;
+    --panel: rgba(12, 10, 18, 0.84);
+    --edge: rgba(236, 230, 216, 0.14);
+    --ink: #ece6d8;
+    --muted: #9d96a8;
+    --blood: #b8323a;
+    --blood-hi: #e2545a;
+    --glow: #3ccf97;
+    --display: 'Cinzel', 'Trajan Pro', Georgia, serif;
+    --pixel: 'Silkscreen', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+    --body: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; background: var(--void); color: var(--ink); overflow: hidden; }
+  body { font-family: var(--body); }
+  #game { position: fixed; inset: 0; overflow: hidden; background: var(--void); }
+  #view { position: absolute; left: 0; top: 0; image-rendering: pixelated; image-rendering: crisp-edges; outline: none; }
+  #view.live { cursor: none; }
+
+  #hud {
+    position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .4s;
+    padding-top: calc(12px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    padding-left: max(12px, env(safe-area-inset-left, 0px));
+    padding-right: max(12px, env(safe-area-inset-right, 0px));
+    display: grid; grid-template-rows: auto 1fr auto; gap: 12px;
+  }
+  #hud.live { opacity: 1; }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  .panel { background: var(--panel); border: 1px solid var(--edge); border-radius: 3px; backdrop-filter: blur(2px); }
+
+  .hero-card { padding: 10px 12px 12px; width: min(240px, 46vw); display: grid; gap: 6px; }
+  .hero-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+  #heroName { font-family: var(--display); font-weight: 800; font-size: 17px; letter-spacing: .04em; color: var(--glow); text-shadow: 0 0 12px color-mix(in srgb, var(--glow) 45%, transparent); }
+  #heroRole { font-family: var(--pixel); font-size: 9px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  #heroPassive { font-size: 11px; line-height: 1.35; color: #c9c2d3; margin-top: -2px; }
+  .bar { position: relative; height: 12px; background: #2a0f13; border: 1px solid #05040a; box-shadow: inset 0 0 0 1px rgba(255,255,255,.05); }
+  #hpFill { position: absolute; inset: 0 auto 0 0; width: 100%; background: linear-gradient(#e2545a, #b8323a 55%, #8a2229); transition: width .12s linear; }
+  #hpText { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--pixel); font-size: 9px; color: #fff; text-shadow: 1px 0 #05040a, -1px 0 #05040a, 0 1px #05040a, 0 -1px #05040a; font-variant-numeric: tabular-nums; }
+  .stats { display: flex; gap: 14px; font-family: var(--pixel); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .stats b { color: var(--ink); font-weight: 400; font-variant-numeric: tabular-nums; }
+
+  .map-wrap { padding: 6px; }
+  #minimap { display: block; width: 256px; height: 128px; image-rendering: pixelated; }
+
+  #banner { justify-self: center; align-self: start; text-align: center; opacity: 0; transform: translateY(-6px); transition: opacity .6s, transform .6s; margin-top: 4vh; }
+  #banner.show { opacity: 1; transform: none; }
+  #zoneName { font-family: var(--display); font-weight: 800; font-size: clamp(22px, 3.4vw, 36px); letter-spacing: .14em; text-transform: uppercase; color: var(--ink); text-shadow: 0 2px 0 #05040a, 0 0 22px rgba(0,0,0,.9); text-wrap: balance; }
+  #zoneSub { font-family: var(--body); font-style: italic; font-size: 14px; color: #c9c1d4; text-shadow: 0 1px 0 #05040a, 0 0 12px #000; margin-top: 4px; }
+
+  .bottom { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+  #roster { display: flex; flex-wrap: wrap; gap: 6px; max-width: 560px; pointer-events: auto; }
+  #roster button {
+    display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px 6px 6px; cursor: pointer;
+    background: var(--panel); color: var(--muted); border: 1px solid var(--edge); border-radius: 3px;
+    font: 600 12px var(--body);
+  }
+  #roster button kbd { font-family: var(--pixel); font-size: 9px; color: var(--ink); background: #1d1928; border: 1px solid #3a3448; border-bottom-color: var(--pip); padding: 2px 5px; border-radius: 2px; }
+  #roster button span { position: relative; padding-left: 12px; }
+  #roster button span::before { content: ""; position: absolute; left: 0; top: 50%; width: 6px; height: 6px; margin-top: -3px; background: var(--pip); box-shadow: 0 0 6px var(--pip); }
+  #roster button:hover { color: var(--ink); border-color: rgba(236,230,216,.3); }
+  #roster button[aria-pressed="true"] { color: var(--ink); border-color: var(--pip); box-shadow: inset 0 -2px 0 var(--pip); }
+  #roster button:focus-visible, #enter:focus-visible { outline: 2px solid var(--glow); outline-offset: 2px; }
+
+  #skills { display: flex; gap: 10px; }
+  .slot { display: grid; justify-items: center; gap: 5px; width: 74px; }
+  .key {
+    --cd: 0; position: relative; width: 52px; height: 52px; display: grid; place-items: center; overflow: hidden;
+    background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--glow) 22%, #14111c), #0d0b13 70%);
+    border: 1px solid var(--edge); border-radius: 3px; font-family: var(--pixel); font-size: 10px; color: var(--ink);
+  }
+  .key::before { content: ""; position: absolute; width: 14px; height: 14px; transform: rotate(45deg); border: 2px solid var(--glow); top: 10px; opacity: .85; }
+  .key span { position: relative; margin-top: 22px; }
+  .key::after { content: ""; position: absolute; inset: 0; background: conic-gradient(rgba(5,4,10,.78) calc(var(--cd) * 360deg), transparent 0); }
+  #slotSkill.ready { border-color: var(--glow); box-shadow: 0 0 10px color-mix(in srgb, var(--glow) 40%, transparent); }
+  .slot small { font-size: 11px; color: var(--muted); text-align: center; line-height: 1.2; text-shadow: 0 1px 0 #000; }
+
+  #intro, #loading { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; background: radial-gradient(ellipse at center, rgba(7,6,11,.25), rgba(7,6,11,.82) 70%); }
+  #loading { font-family: var(--pixel); font-size: 12px; letter-spacing: .1em; color: var(--muted); text-transform: uppercase; background: var(--void); }
+  .intro-card { width: min(540px, 100%); padding: 26px 26px 22px; display: grid; gap: 16px; max-height: 100%; overflow: auto; }
+  .intro-card h1 { margin: 0; font-family: var(--display); font-weight: 800; font-size: clamp(34px, 6vw, 52px); letter-spacing: .2em; text-transform: uppercase; line-height: 1; color: var(--ink); text-shadow: 0 0 24px rgba(60,207,151,.25); }
+  .eyebrow { font-family: var(--pixel); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--glow); }
+  .intro-card p { margin: 0; color: #c9c2d3; line-height: 1.55; font-size: 14px; max-width: 62ch; }
+  .controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; margin: 0; }
+  .controls div { display: flex; align-items: center; gap: 10px; font-size: 13px; color: #d9d2e2; }
+  .controls dt { min-width: 64px; }
+  .controls dd { margin: 0; }
+  kbd.cap { font-family: var(--pixel); font-size: 9px; color: var(--ink); background: #1d1928; border: 1px solid #3a3448; border-bottom-width: 2px; padding: 3px 6px; border-radius: 2px; white-space: nowrap; }
+  .classes { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; font-size: 12.5px; color: var(--muted); }
+  .classes b { color: var(--ink); font-weight: 600; margin-right: 6px; }
+  .classes i { display: inline-block; width: 6px; height: 6px; margin-right: 6px; vertical-align: 1px; }
+  #enter { justify-self: start; padding: 11px 20px; font: 800 13px var(--display); letter-spacing: .18em; text-transform: uppercase; color: #06140e; background: var(--glow); border: 0; border-radius: 2px; cursor: pointer; box-shadow: 0 0 18px rgba(60,207,151,.35); }
+  #enter:hover { filter: brightness(1.1); }
+  .fine { font-size: 12px !important; color: var(--muted) !important; }
+
+  @media (max-width: 900px) { #minimap { width: 128px; height: 64px; } }
+  @media (max-width: 640px) {
+    .controls { grid-template-columns: minmax(0, 1fr); }
+    #skills .slot { width: 60px; } .key { width: 44px; height: 44px; }
+    #roster button span { display: none; } #roster button { padding-right: 6px; }
+  }
+  @media (prefers-reduced-motion: reduce) { #hud, #banner, #hpFill { transition: none; } }
+</style>
+
+<div id="game">
+  <canvas id="view" tabindex="0" aria-label="Vaelmort game view"></canvas>
+
+  <div id="hud" aria-live="polite">
+    <div class="top">
+      <div class="panel hero-card">
+        <div class="hero-head"><span id="heroName">Necromancer</span><span id="heroRole">Summoner</span></div>
+        <div id="heroPassive">Soul Harvest: kills restore 6% health</div>
+        <div class="bar"><i id="hpFill"></i><span id="hpText">160 / 160</span></div>
+        <div class="stats"><span>Kills <b id="kills">0</b></span><span>Esc for help</span></div>
+      </div>
+      <div class="panel map-wrap"><canvas id="minimap" width="128" height="64" aria-label="Minimap"></canvas></div>
+    </div>
+    <div id="banner"><div id="zoneName"></div><div id="zoneSub"></div></div>
+    <div class="bottom">
+      <div id="roster" aria-label="Switch class"></div>
+      <div id="skills">
+        <div class="slot"><div class="key" id="slotPrimary"><span>LMB</span></div><small id="namePrimary">Soul Bolt</small></div>
+        <div class="slot"><div class="key" id="slotSkill"><span>Q</span></div><small id="nameSkill">Raise Dead</small></div>
+        <div class="slot"><div class="key" id="slotDodge"><span>SPACE</span></div><small>Dodge</small></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="intro" hidden>
+    <div class="panel intro-card">
+      <div class="eyebrow">Showcase build · art pass v1</div>
+      <h1>Vaelmort</h1>
+      <p>Walk the first zone with all six classes. Test them on the dummies in the plaza, clear the Mourning Wood, and find the Ember Warden in the ruins to the west. Hover an enemy to lock your shots onto it.</p>
+      <dl class="controls">
+        <div><dt><kbd class="cap">W A S D</kbd></dt><dd>Move</dd></div>
+        <div><dt><kbd class="cap">Mouse</kbd></dt><dd>Aim</dd></div>
+        <div><dt><kbd class="cap">Left click</kbd></dt><dd>Primary attack (hold)</dd></div>
+        <div><dt><kbd class="cap">Q</kbd> <kbd class="cap">RMB</kbd></dt><dd>Class skill</dd></div>
+        <div><dt><kbd class="cap">Space</kbd></dt><dd>Dodge roll</dd></div>
+        <div><dt><kbd class="cap">1 – 6</kbd></dt><dd>Switch class</dd></div>
+      </dl>
+      <ul class="classes">
+        <li><i style="background:#e85325"></i><b>Doom Knight</b> Hellfire Slam leaves burning ground</li>
+        <li><i style="background:#3ccf97"></i><b>Necromancer</b> Raise Dead summons two skeletons</li>
+        <li><i style="background:#4d9bff"></i><b>Warlord</b> War Banner empowers you while you stand near it</li>
+        <li><i style="background:#bf72f0"></i><b>Assassin</b> Shadow Step cuts through enemies and exposes them</li>
+        <li><i style="background:#d6e4f2"></i><b>Witch Hunter</b> Silver Volley marks targets for extra damage</li>
+        <li><i style="background:#a6ec4f"></i><b>Druid</b> Wild Bloom heals you and roots enemies</li>
+      </ul>
+      <button id="enter" type="button">Enter the world</button>
+      <p class="fine">Single-player preview of the world and combat. Needs a keyboard and mouse.</p>
+    </div>
+  </div>
+  <div id="loading">Forging the world…</div>
+</div>
+
+<script src="src/world.js"></script>
+<script src="src/game.js"></script>
