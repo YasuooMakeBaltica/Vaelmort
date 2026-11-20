@@ -44,6 +44,7 @@
     if (k === 'c') { toggleWindow('winChar'); return; }
     if (k === 'n') { toggleWindow('winTalents'); return; }
     if (k === 'm') { toggleWindow('winMap'); return; }
+    if (k === 'k' && V.Snd) { const m = V.Snd.toggleMute(); say(m ? 'Sound off (K)' : 'Sound on (K)'); syncAudioUi(); return; }
     if (k === 'f8' && G.admin) { e.preventDefault(); toggleWindow('winAdmin'); return; }
     if (k === 'e') { if (!e.repeat) interact(); return; }
     keys.add(k);
@@ -94,11 +95,45 @@
   const clsOf = (pid) => (pid === G.me ? L.cls : (G.players.get(pid) || {}).cls) || 'necromancer';
   function startMove(o, e) { o.move = { x0: e.x0, y0: e.y0, x1: e.x1, y1: e.y1, t: 0, dur: e.dur, kind: e.kind }; }
 
+  // ---------- sound: one place maps game events to effects ----------
+  const SND_EVENT = { slam: 'slam', doomfall: 'doomfall', raise: 'raise', howl: 'howl', banner: 'banner', land: 'land', shout: 'shout', buff: 'buff', laststand: 'buff',
+    fan: 'knives', smokebomb: 'smoke', whiff: 'swing', mark: 'mark', detonate: 'detonate', volley: 'volley', trapset: 'trapset', trapboom: 'trapboom', purge: 'holy',
+    rainstart: 'rain', stormstart: 'thunder', bolt: 'thunder', bloom: 'bloom', cloud: 'cloud', pull: 'pull', absorb: 'absorb', die: 'die', crumble: 'kill', revive: 'raise',
+    fslam: 'bossSlam', nova: 'nova', roar: 'roar' };
+  function sound(e, pl, foe, isMe) {
+    const S = V.Snd; if (!S) return;
+    const x = e.x !== undefined ? e.x : foe ? foe.x : pl ? pl.x : undefined, y = e.y !== undefined ? e.y : foe ? foe.y : pl ? pl.y : undefined;
+    const k = e.e;
+    if (SND_EVENT[k]) return S.play(SND_EVENT[k], x, y);
+    switch (k) {
+      case 'hit': return S.play(LIGHT_COLS.has(e.col) ? 'lightHit' : 'hit', x, y, { crit: !!e.c }, 0.025);
+      case 'kill': { if (!foe || foe.far) return; const by = G.players.get(e.by); return S.play(foe.def.boss ? 'bossKill' : by && by.cls === 'lightborn' ? 'lightKill' : 'kill', x, y, {}, 0.04); }
+      case 'swing': return S.play(e.w ? 'swingHeavy' : 'swing', x, y, {}, 0.05);
+      case 'dodge': if (!isMe && pl) S.play(clsOf(e.id) === 'lightborn' ? 'blink' : 'dodge', x, y, { leaving: true }); return;
+      case 'move': return S.play(e.kind === 'charge' ? 'charge' : 'dodge', e.x0, e.y0);
+      case 'evisc': return S.play('evisc', x, y, { big: !!e.big });
+      case 'arrow': return S.play('arrow', x, y, {}, 0.05);
+      case 'root': return S.play('roots', x, y, {}, 0.3);
+      case 'strike': return S.play('strike', x, y, {}, 0.06);
+      case 'fizzle': return S.play('fizzle', x, y, {}, 0.06);
+      case 'hurt': if (isMe) S.play('hurt'); return;
+      case 'respawn': if (isMe) S.play('respawn'); return;
+      case 'xp': if (isMe) S.play('xp', undefined, undefined, {}, 0.12); return;
+      case 'levelup': if (isMe) S.play('levelup'); return;
+      case 'bounty': if (isMe) S.play(e.acc ? 'bountyTake' : e.ready ? 'bountyReady' : e.done ? 'bountyDone' : 'xp'); return;
+      case 'nope': if (isMe) S.play('nope', undefined, undefined, {}, 0.3); return;
+      case 'talents': if (isMe) S.play('learn'); return;
+      case 'fx':
+        if (e.k === 'blink') { S.play('blink', e.x, e.y, { leaving: true }); setTimeout(() => S.play('blink', e.x1, e.y1, { leaving: false }, 0), 90); }
+        else S.play(e.k, x, y);
+    }
+  }
   function fx(e) {
     const isMe = e.id !== undefined && e.id === G.me;
     const pl = e.id !== undefined ? posOf(e.id) : null;
     const pc = e.id !== undefined ? glow(clsOf(e.id)) : '#ffffff';
     const foe = e.f !== undefined ? G.foes[e.f] : null;
+    sound(e, pl, foe, isMe);
     switch (e.e) {
       case 'join': if (G.mode === 'online' && !isMe && e.name) chatLine(`${e.name} entered Vaelmort`, 'sys'); break;
       case 'leave': if (G.mode === 'online' && e.name) chatLine(`${e.name} left`, 'sys'); break;
@@ -388,6 +423,7 @@
       f.hp = a[4]; f.state = V.FOE_STATES[a[5]]; f.face = a[6]; f.flags = a[7]; f.t = a[8] / 100; f.label = !!a[9]; f.ab = a[10]; f.ax = a[11]; f.ay = a[12];
     }
     const shots = new Map();
+    for (const a of s.s) if (!G.shots.has(a[0]) && V.Snd && a[9] !== 'knife') V.Snd.play('shot', a[1], a[2], { magic: a[9] === 'bolt' && a[6] !== '#e6eef6' }, 0.04);
     for (const a of s.s) shots.set(a[0], { id: a[0], sx: a[1], sy: a[2], h: a[3], vx: a[4], vy: a[5], color: a[6], size: a[7], trail: a[8], kind: a[9], rcv: now, x: a[1], y: a[2] });
     G.shots = shots;
     const mins = new Map();
@@ -545,6 +581,7 @@
       const blink = L.cls === 'lightborn'; // Lightborn teleports instead of rolling, leaving a sigil where it left and where it lands
       L.dodge = { t: blink ? 0.07 : DODGE_TIME, dx, dy, blink }; L.cdDodge = (K.dodgeCd || DODGE_CD); L.atk = null; L.dodgeEdge = true;
       if (blink) sigil(L.x, L.y, true); else burst(L.x, L.y, 2, '#6f6879', 8, 40, 0.4, 1, { glow: false });
+      if (V.Snd) V.Snd.play(blink ? 'blink' : 'dodge', L.x, L.y, { leaving: true });
     }
     wantDodge = false;
     if (L.dodge) {
@@ -553,7 +590,7 @@
       G.coll.moveEnt(L, L.dodge.dx * K.speed * sp * dt, L.dodge.dy * K.speed * sp * dt, 10);
       L.row = dirRow(L.dodge.dx, L.dodge.dy); L.anim = 'run'; L.animT += dt * 1.6; L.moving = true;
       if (!L.dodge.blink) G.ghosts.push({ x: L.x, y: L.y, cls: L.cls, anim: 'run', row: L.row, f: frameOf('run', L.animT, L.cls), t: 0, life: 0.22 });
-      if (L.dodge.t <= 0) { if (L.dodge.blink) sigil(L.x, L.y, false); L.dodge = null; }
+      if (L.dodge.t <= 0) { if (L.dodge.blink) { sigil(L.x, L.y, false); if (V.Snd) V.Snd.play('blink', L.x, L.y, { leaving: false }, 0); } L.dodge = null; }
       return;
     }
     const whirl = p.buffs & V.BUFF_BITS.whirl;
@@ -583,6 +620,8 @@
     }
     if (il) {
       L.stepT -= dt;
+      if (L.stepT <= 0 && V.Snd) { const [tx, ty] = V.toTile(L.x, L.y), tt = G.map.tiles[Math.floor(ty) * V.N + Math.floor(tx)], T = V.T;
+        if (L.cls !== 'lightborn') V.Snd.play('step', L.x, L.y, { kind: tt === T.SNOW || tt === T.ICE ? 'snow' : tt === T.PLAZA || tt === T.ROAD ? 'hard' : tt === T.ASH || tt === T.EMBER ? 'ash' : 'soft' }, 0.1); }
       if (L.stepT <= 0) { L.stepT = 0.28; part({ x: L.x + rnd(-3, 3), y: L.y + 1, z: 1, vx: -ix * 10, vy: -iy * 5, vz: 8, g: 20, life: 0.4, max: 0.4, color: G.zone === 5 ? '#d8e4ee' : '#5b5463', glow: false }); }
     }
   }
@@ -1336,6 +1375,7 @@
     let boss = null;
     for (const f of G.foes) if (f.def.boss && !f.dead && !f.far && (f.state !== 'idle' || f.hp < f.maxHp) && near(f.x, f.y, 700)) { boss = f; break; }
     hud.bossbar.hidden = !boss;
+    if (V.Snd) { V.Snd.music(boss ? 'boss' : V.Snd.ZONE_TRACK[Math.max(0, G.zone)] || 'town'); V.Snd.zone(Math.max(0, G.zone)); }
     if (boss) { hud.bossName.textContent = boss.def.name; hud.bossFill.style.width = (100 * clamp(boss.hp / boss.maxHp, 0, 1)).toFixed(1) + '%'; hud.bossText.textContent = `${Math.max(0, Math.ceil(boss.hp)).toLocaleString()} / ${boss.maxHp.toLocaleString()}`; }
   }
   function updateMinimap(dt) {
@@ -1355,6 +1395,8 @@
   function openWindow(id) {
     closeWindows();
     if (id === 'winTalents') { web.fit = false; renderTalents(); }
+    if (V.Snd) V.Snd.play('open');
+    if (id === 'winMenu') syncAudioUi();
     if (id === 'winChar') renderChar();
     if (id === 'winMap') renderWorldMap();
     if (id === 'winBoard') renderBoard();
@@ -1379,6 +1421,7 @@
     d.hidden = false; d.classList.remove('show'); void d.offsetWidth; d.classList.add('show');
     clearTimeout(announce.t); announce.t = setTimeout(() => { d.hidden = true; }, 8000);
     if (G.started) chatLine(`[Announcement] ${text}`, 'loot');
+    if (V.Snd) V.Snd.play('announce');
   }
   function adminReply(m) {
     if (m.op === 'ok' || m.op === 'error') { $('adminMsg').textContent = m.msg; if (G.started) chatLine(m.msg, 'sys'); return; }
@@ -1409,6 +1452,17 @@
   $('adminRefresh').addEventListener('click', () => G.link && G.link.admin('list'));
   $('btnAdmin').addEventListener('click', () => toggleWindow('winAdmin'));
   $('menuAdmin').addEventListener('click', () => openWindow('winAdmin'));
+
+  // ---------- sound settings ----------
+  function syncAudioUi() {
+    if (!V.Snd) return; const st = V.Snd.settings();
+    for (const k of ['master', 'music', 'sfx', 'amb']) $('vol_' + k).value = Math.round(st[k] * 100);
+    $('volMute').textContent = st.muted ? 'Unmute (K)' : 'Mute (K)';
+  }
+  for (const k of ['master', 'music', 'sfx', 'amb']) $('vol_' + k).addEventListener('input', (e) => { if (V.Snd) V.Snd.set(k, e.target.value / 100); });
+  $('volMute').addEventListener('click', () => { if (V.Snd) { V.Snd.toggleMute(); syncAudioUi(); } });
+  document.addEventListener('click', (e) => { if (V.Snd && e.target.closest && e.target.closest('button') && !e.target.closest('.slot')) V.Snd.play('ui', undefined, undefined, {}, 0.05); });
+  if (V.Snd) V.Snd.music('menu');
 
   // ---------- the skill web window ----------
   const BRANCH_COL = ['#ff9a4a', '#62b8ff', '#c584ff'], WEB_YS = 0.78; // the web is tilted like a star chart on a table
@@ -1827,6 +1881,7 @@
     G.started = true; G.zone = -1; lastZoneLabel = -2; view.focus?.();
   }
   function stopGame() {
+    if (V.Snd) { V.Snd.music('menu'); V.Snd.ambOff(); }
     if (G.link) { const l = G.link; G.link = null; l.close(); }
     G.started = false; G.mode = null; mouse.down = false; keys.clear(); closeChat(); closeWindows();
     $('hud').classList.remove('live'); view.classList.remove('live'); $('death').hidden = true;
@@ -1838,6 +1893,14 @@
     G.t += dt;
     if (G.stop > 0) { G.stop -= dt; render(); requestAnimationFrame(frame); return; }
     if (G.started && !$('winTalents').hidden) drawWeb();
+    if (G.started && V.Snd) {
+      V.Snd.listen(L.x, L.y);
+      if ((G.fireT = (G.fireT || 0) - dt) <= 0) { // crackle near braziers
+        G.fireT = 0.5; G.braziers = G.braziers || G.map.props.filter((q) => q.type === 'brazier');
+        let d = 1e9; for (const q of G.braziers) d = Math.min(d, V.gdist(L.x, L.y, q.x, q.y));
+        V.Snd.fire(Math.max(0, 1 - d / 380));
+      }
+    }
     if (G.started) {
       G.aim = computeAim();
       updateLocal(dt);
