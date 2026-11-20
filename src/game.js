@@ -96,6 +96,7 @@
   function startMove(o, e) { o.move = { x0: e.x0, y0: e.y0, x1: e.x1, y1: e.y1, t: 0, dur: e.dur, kind: e.kind }; }
 
   // ---------- sound: one place maps game events to effects ----------
+  const SHOT_SND = { '#ffd86a': 'lanceShot', '#3ccf97': 'soulShot', '#d6e4f2': 'boltShot', '#a6ec4f': 'seedShot', '#7fd04a': 'seedShot', '#e6dfc8': 'bone', '#ff7a2e': 'chain' };
   const SND_EVENT = { slam: 'slam', doomfall: 'doomfall', raise: 'raise', howl: 'howl', banner: 'banner', land: 'land', shout: 'shout', buff: 'buff', laststand: 'buff',
     fan: 'knives', smokebomb: 'smoke', whiff: 'swing', mark: 'mark', detonate: 'detonate', volley: 'volley', trapset: 'trapset', trapboom: 'trapboom', purge: 'holy',
     rainstart: 'rain', stormstart: 'thunder', bolt: 'thunder', bloom: 'bloom', cloud: 'cloud', pull: 'pull', absorb: 'absorb', die: 'die', crumble: 'kill', revive: 'raise',
@@ -106,12 +107,12 @@
     const k = e.e;
     if (SND_EVENT[k]) return S.play(SND_EVENT[k], x, y);
     switch (k) {
-      case 'hit': return S.play(LIGHT_COLS.has(e.col) ? 'lightHit' : 'hit', x, y, { crit: !!e.c }, 0.025);
+      case 'hit': return S.play(LIGHT_COLS.has(e.col) ? (e.c ? 'lightCrit' : 'lightHit') : (e.c ? 'crit' : 'hit'), x, y, { crit: !!e.c }, 0.025);
       case 'kill': { if (!foe || foe.far) return; const by = G.players.get(e.by); return S.play(foe.def.boss ? 'bossKill' : by && by.cls === 'lightborn' ? 'lightKill' : 'kill', x, y, {}, 0.04); }
       case 'swing': return S.play(e.w ? 'swingHeavy' : 'swing', x, y, {}, 0.05);
       case 'dodge': if (!isMe && pl) S.play(clsOf(e.id) === 'lightborn' ? 'blink' : 'dodge', x, y, { leaving: true }); return;
       case 'move': return S.play(e.kind === 'charge' ? 'charge' : 'dodge', e.x0, e.y0);
-      case 'evisc': return S.play('evisc', x, y, { big: !!e.big });
+      case 'evisc': return S.play(e.big ? 'eviscBig' : 'evisc', x, y, { big: !!e.big });
       case 'arrow': return S.play('arrow', x, y, {}, 0.05);
       case 'root': return S.play('roots', x, y, {}, 0.3);
       case 'strike': return S.play('strike', x, y, {}, 0.06);
@@ -423,7 +424,7 @@
       f.hp = a[4]; f.state = V.FOE_STATES[a[5]]; f.face = a[6]; f.flags = a[7]; f.t = a[8] / 100; f.label = !!a[9]; f.ab = a[10]; f.ax = a[11]; f.ay = a[12];
     }
     const shots = new Map();
-    for (const a of s.s) if (!G.shots.has(a[0]) && V.Snd && a[9] !== 'knife') V.Snd.play('shot', a[1], a[2], { magic: a[9] === 'bolt' && a[6] !== '#e6eef6' }, 0.04);
+    for (const a of s.s) if (!G.shots.has(a[0]) && V.Snd && a[9] !== 'knife') V.Snd.play(SHOT_SND[a[6]] || 'foeShot', a[1], a[2], {}, 0.04);
     for (const a of s.s) shots.set(a[0], { id: a[0], sx: a[1], sy: a[2], h: a[3], vx: a[4], vy: a[5], color: a[6], size: a[7], trail: a[8], kind: a[9], rcv: now, x: a[1], y: a[2] });
     G.shots = shots;
     const mins = new Map();
@@ -621,7 +622,7 @@
     if (il) {
       L.stepT -= dt;
       if (L.stepT <= 0 && V.Snd) { const [tx, ty] = V.toTile(L.x, L.y), tt = G.map.tiles[Math.floor(ty) * V.N + Math.floor(tx)], T = V.T;
-        if (L.cls !== 'lightborn') V.Snd.play('step', L.x, L.y, { kind: tt === T.SNOW || tt === T.ICE ? 'snow' : tt === T.PLAZA || tt === T.ROAD ? 'hard' : tt === T.ASH || tt === T.EMBER ? 'ash' : 'soft' }, 0.1); }
+        if (L.cls !== 'lightborn') V.Snd.play(tt === T.SNOW || tt === T.ICE ? 'stepSnow' : tt === T.PLAZA || tt === T.ROAD ? 'stepHard' : 'step', L.x, L.y, {}, 0.1); }
       if (L.stepT <= 0) { L.stepT = 0.28; part({ x: L.x + rnd(-3, 3), y: L.y + 1, z: 1, vx: -ix * 10, vy: -iy * 5, vz: 8, g: 20, life: 0.4, max: 0.4, color: G.zone === 5 ? '#d8e4ee' : '#5b5463', glow: false }); }
     }
   }

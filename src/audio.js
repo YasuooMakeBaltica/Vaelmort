@@ -32,6 +32,7 @@
     noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
     const nd = noiseBuf.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
     applyVolume();
+    loadSamples();
     setInterval(tick, 25);
     return true;
   }
@@ -214,10 +215,31 @@
     dawn: (g, t) => { const w = wet(g, 0.9); R.tone(w, t, 'sawtooth', 110, 0.8, 0.25, 0.6, 440); R.boom(g, t + 0.7, 1.4); INST.choir(w, t + 0.6, 57, 2.4, 1.4); INST.choir(w, t + 0.6, 64, 2.4, 1.2); INST.choir(w, t + 0.6, 69, 2.4, 1.1); R.shimmer(w, t + 0.7, 81, 1.6, 0.5); },
   };
   // play a named effect at a world position (x undefined = not positioned, e.g. UI)
+  // recorded effects (CC0 sources, built by tools/sfx) are preferred; the synth recipes above are the fallback
+  const SAMPLES = {}; let sampleMeta = null;
+  function loadSamples() {
+    fetch('assets/sfx/sfx.json').then((r) => (r.ok ? r.json() : null)).then((meta) => {
+      if (!meta) return; sampleMeta = meta;
+      for (const [name, m] of Object.entries(meta)) for (let i = 0; i < m.n; i++) {
+        fetch(`assets/sfx/${name}_${i}.mp3`).then((r) => r.arrayBuffer()).then((b) => new Promise((ok, bad) => ac.decodeAudioData(b, ok, bad)))
+          .then((buf) => { (SAMPLES[name] || (SAMPLES[name] = []))[i] = buf; }).catch(() => {});
+      }
+    }).catch(() => {});
+  }
+  function sample(name, dest, t, rate = 1) {
+    const list = SAMPLES[name]; if (!list) return false;
+    const ok = list.filter(Boolean); if (!ok.length) return false;
+    const s = ac.createBufferSource(); s.buffer = ok[(Math.random() * ok.length) | 0];
+    s.playbackRate.value = rate * (0.96 + Math.random() * 0.08); // a little variety every time
+    const g = ac.createGain(); g.gain.value = Math.pow(10, ((sampleMeta[name] && sampleMeta[name].g) || 0) / 20);
+    s.connect(g); g.connect(dest); s.start(t);
+    return true;
+  }
   Snd.play = (name, x, y, o = {}, gap) => {
-    const fn = SFX[name]; if (!fn) return;
+    if (!SFX[name] && !SAMPLES[name]) return;
     const g = spot(name, x, y, gap); if (!g) return;
-    fn(g, ac.currentTime + 0.005, o);
+    const t = ac.currentTime + 0.005;
+    if (!sample(name, g, t) && SFX[name]) SFX[name](g, t, o);
   };
 
   // ---------- ambience ----------
@@ -248,6 +270,8 @@
     const kind = (AMB[zoneAmb] || AMB[0]).one, t = now + 0.02, pan = ac.createStereoPanner ? ac.createStereoPanner() : null;
     let g; if (pan) { pan.pan.value = rand(-0.8, 0.8); pan.connect(busAmb); g = gainTo(pan, 0.6); } else g = gainTo(busAmb, 0.6);
     const w = wet(g, 0.8);
+    const AMB_SAMPLE = { owl: 'ambOwl', wolf: 'ambWolf', drip: 'ambDrip', ember: 'ambEmber', ice: 'ambIce', whisper: 'ambWhisper', bells: 'ambBell' };
+    if (sample(AMB_SAMPLE[kind], w, t)) return;
     if (kind === 'owl') { R.tone(w, t, 'sine', 420, 0.35, 0.12, 0.05, 380); R.tone(w, t + 0.5, 'sine', 400, 0.5, 0.1, 0.05, 340); }
     else if (kind === 'wolf') { R.tone(w, t, 'sawtooth', 260, 2.2, 0.05, 0.6, 430).detune.value = 0; R.tone(w, t, 'sine', 390, 2.2, 0.06, 0.6, 600); }
     else if (kind === 'drip') for (let i = 0; i < 3; i++) R.tone(w, t + i * rand(0.3, 0.9), 'sine', rand(900, 1500), 0.12, 0.12, 0.002, 2400);
