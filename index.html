@@ -190,6 +190,11 @@
   .evcard h3 { margin: 0; font: 800 16px var(--display); letter-spacing: .1em; text-transform: uppercase; color: var(--c); }
   .evcard p { margin: 0; font-size: 12.5px; }
   @media (max-width: 520px) { .evolve { grid-template-columns: minmax(0, 1fr); } }
+  #dialog { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 16px; background: rgba(5,4,10,.6); }
+  .dialog-box { width: min(380px, 100%); display: grid; gap: 10px; padding: 18px 20px; background: var(--panel-solid); border: 1px solid var(--edge-hi); border-radius: 4px; box-shadow: 0 20px 60px rgba(0,0,0,.7); }
+  .dialog-box h2 { margin: 0; font: 800 17px var(--display); letter-spacing: .1em; text-transform: uppercase; color: var(--gold); }
+  .dialog-box p { margin: 0; font-size: 13.5px; color: #c9c2d3; }
+  .dialog-box input { padding: 8px 10px; font: 14px var(--body); color: var(--ink); background: #0d0b13; border: 1px solid #3a3448; border-radius: 2px; }
   .window.board { width: min(520px, calc(100vw - 24px)); }
   .win-head { position: sticky; top: 0; display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: linear-gradient(#1c1626, #141019); border-bottom: 1px solid var(--edge); z-index: 1; }
   .win-head h2 { margin: 0; flex: 1; font: 800 17px var(--display); letter-spacing: .12em; text-transform: uppercase; color: var(--gold); }
@@ -374,6 +379,14 @@
     <div class="win-head"><h2>Vaelmort</h2><button class="x" type="button" data-close aria-label="Close">✕</button></div>
     <div class="win-body"><canvas id="worldmap" width="896" height="448"></canvas></div>
   </section>
+  <div id="dialog" hidden role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
+    <div class="dialog-box">
+      <h2 id="dialogTitle"></h2>
+      <p id="dialogText"></p>
+      <input id="dialogInput" type="text" maxlength="12" autocomplete="off" hidden>
+      <div class="row"><button class="btn primary" type="button" id="dialogOk">OK</button><button class="btn secondary" type="button" id="dialogCancel">Cancel</button></div>
+    </div>
+  </div>
   <section class="window board" id="winEvolve" hidden aria-label="Evolve">
     <div class="win-head"><h2>Your Path</h2><button class="x" type="button" data-close aria-label="Close">✕</button></div>
     <div class="win-body" id="evolveBody"></div>

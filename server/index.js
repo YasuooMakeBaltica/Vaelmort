@@ -257,9 +257,12 @@ setInterval(() => { for (const c of clients.values()) c.msgs = 0; }, 1000);
 setInterval(() => { for (const c of clients.values()) saveChar(c); }, 30000);
 // The world runs at 20 ticks a second; each player gets a view of what is near them every SEND_EVERY ticks.
 let last = Date.now(), tick = 0, pending = [];
+// a bug must never take the whole realm down: log it and keep the world running
+process.on('uncaughtException', (e) => console.error('uncaught', e));
+process.on('unhandledRejection', (e) => console.error('unhandled rejection', e));
 setInterval(() => {
   const now = Date.now(), dt = Math.min(0.1, (now - last) / 1000); last = now;
-  sim.step(dt);
+  try { sim.step(dt); } catch (e) { console.error('tick failed', e); }
   pending.push(...sim.drainEvents());
   if (++tick % SEND_EVERY) return;
   const events = pending; pending = [];

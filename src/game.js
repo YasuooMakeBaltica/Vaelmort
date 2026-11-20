@@ -473,7 +473,7 @@
     G.fields = fields;
     if (s.me) { G.self = s.me; G.selfT = now; L.level = s.me.lv; }
     if (s.n) G.online = s.n;
-    if (s.e) for (const e of s.e) fx(e);
+    if (s.e) for (const e of s.e) { try { fx(e); } catch (err) { reportError(err, 'event ' + e.e); } }
   }
 
   // ---------- links ----------
@@ -522,7 +522,7 @@
             if (m.t === 'chars') { chars = m.list; if (!resolve(m) && settled && !G.started) renderChars(); settle(ok); return; }
             if (m.t === 'error') { if (resolve(m)) return; if (!settled) settle(bad, new Error(m.msg)); else if (G.started) chatLine(m.msg, 'sys'); else charsStatus(m.msg, true); return; }
             if (m.t === 'welcome') { resolve(m); return; }
-            if (m.t === 's') { if (G.started && G.mode === 'online') applySnap(m); return; }
+            if (m.t === 's') { if (G.started && G.mode === 'online') { try { applySnap(m); } catch (err) { reportError(err, 'update'); } } return; }
             if (m.t === 'chat') chatLine(m.text, m.sys ? 'sys' : '', m.name);
           };
           ws.onclose = () => {
@@ -1446,6 +1446,22 @@
   $('menuChars').addEventListener('click', () => { closeWindows(); toCharSelect(); });
   $('menuLogout').addEventListener('click', () => { closeWindows(); logout(); });
 
+  // ---------- in-game dialog (instead of the browser's confirm/prompt) ----------
+  // ask(title, text, okLabel, inputDefault?, danger?) -> Promise: true/false, or the typed value (null if cancelled)
+  function ask(title, text, okLabel = 'OK', input = null, danger = false) {
+    return new Promise((resolve) => {
+      const d = $('dialog'), inp = $('dialogInput'), ok = $('dialogOk'), no = $('dialogCancel');
+      $('dialogTitle').textContent = title; $('dialogText').textContent = text;
+      ok.textContent = okLabel; ok.className = 'btn ' + (danger ? 'danger' : 'primary');
+      inp.hidden = input === null; inp.value = input ?? '';
+      d.hidden = false; (input === null ? ok : inp).focus();
+      const done = (v) => { d.hidden = true; ok.onclick = no.onclick = inp.onkeydown = d.onkeydown = null; resolve(v); };
+      ok.onclick = () => done(input === null ? true : inp.value);
+      no.onclick = () => done(input === null ? false : null);
+      d.onkeydown = (e) => { e.stopPropagation(); if (e.key === 'Escape') no.onclick(); else if (e.key === 'Enter') ok.onclick(); };
+    });
+  }
+
   // ---------- evolving a base class ----------
   function renderEvolve() {
     const s = G.self, C = CLASSES[L.cls], T = V.TRAINERS[L.cls], el = $('evolveBody'); if (!s || !el) return;
@@ -1467,7 +1483,7 @@
         card.innerHTML = `<canvas width="96" height="96"></canvas><h3>${esc(G.meta.heroes[cls].name)}</h3><span class="fine">${esc(K.role)}</span><p>${esc(K.blurb)}</p><p class="fine">${esc(K.passive)}</p>`;
         drawPortrait(card.querySelector('canvas'), cls, 0, true);
         const b = document.createElement('button'); b.type = 'button'; b.className = 'btn primary'; b.textContent = `Become a ${G.meta.heroes[cls].name}`;
-        b.addEventListener('click', () => { if (confirm(`Become a ${G.meta.heroes[cls].name}? This cannot be undone.`) && G.link) G.link.evolve(cls); });
+        b.addEventListener('click', async () => { if (await ask(`Become a ${G.meta.heroes[cls].name}?`, 'This cannot be undone. Your base training comes with you.', `Become a ${G.meta.heroes[cls].name}`) && G.link) G.link.evolve(cls); });
         card.appendChild(b); row.appendChild(card);
       }
     }
@@ -1495,9 +1511,9 @@
       const btns = document.createElement('div'); btns.className = 'row';
       const mk = (label, fn, cls) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (cls || 'secondary') + ' sm'; b.textContent = label; b.addEventListener('click', fn); btns.appendChild(b); };
       mk('Teleport', () => G.link.admin('tp', { pid: p.pid }));
-      mk('+XP', () => { const n = +prompt(`XP to give ${p.name}:`, '1000'); if (n > 0) G.link.admin('xp', { pid: p.pid, n }); });
+      mk('+XP', async () => { const n = +(await ask(`Give XP to ${p.name}`, 'How much experience?', 'Give XP', '1000')); if (n > 0) G.link.admin('xp', { pid: p.pid, n }); });
       mk('Kick', () => G.link.admin('kick', { pid: p.pid }), 'danger');
-      mk('Ban', () => { if (confirm(`Ban the account ${p.acct}?`)) G.link.admin('ban', { name: p.acct }); }, 'danger');
+      mk('Ban', async () => { if (await ask(`Ban ${p.acct}?`, 'They will be kicked and cannot sign in until unbanned.', 'Ban', null, true)) G.link.admin('ban', { name: p.acct }); }, 'danger');
       row.appendChild(btns); pl.appendChild(row);
     }
     const sel = $('adminFoe');
@@ -1509,7 +1525,7 @@
   $('adminSpawn').addEventListener('click', () => G.link && G.link.admin('spawn', { type: $('adminFoe').value, n: +$('adminCount').value || 1, level: +$('adminLevel').value || 0 }));
   $('adminAnnounce').addEventListener('click', () => { const v = $('adminText').value.trim(); if (v && G.link) { G.link.admin('announce', { text: v }); $('adminText').value = ''; } });
   $('adminAdd').addEventListener('click', () => { const v = $('adminName').value.trim(); if (v && G.link) { G.link.admin('admin', { name: v }); $('adminName').value = ''; } });
-  $('adminBan').addEventListener('click', () => { const v = $('adminName').value.trim(); if (v && G.link && confirm(`Ban the account ${v}?`)) { G.link.admin('ban', { name: v }); $('adminName').value = ''; } });
+  $('adminBan').addEventListener('click', async () => { const v = $('adminName').value.trim(); if (v && G.link && await ask(`Ban ${v}?`, 'They will be kicked and cannot sign in until unbanned.', 'Ban', null, true)) { G.link.admin('ban', { name: v }); $('adminName').value = ''; } });
   $('adminRefresh').addEventListener('click', () => G.link && G.link.admin('list'));
   $('btnAdmin').addEventListener('click', () => toggleWindow('winAdmin'));
   $('menuAdmin').addEventListener('click', () => openWindow('winAdmin'));
@@ -1560,7 +1576,8 @@
       let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
       const grow = (x, y, pad) => { x0 = Math.min(x0, x - pad); y0 = Math.min(y0, y - pad); x1 = Math.max(x1, x + pad); y1 = Math.max(y1, y + pad); };
       for (const n of V.WEB[L.cls].list) { const [x, y] = nodePos(n); grow(x, y, 40); }
-      for (let b = 0; b < 3; b++) { const a = (-90 + 120 * b) * Math.PI / 180; grow(Math.cos(a) * 6.25 * 78, Math.sin(a) * 6.25 * 78 * WEB_YS, 30); }
+      if (V.TALENTS[L.cls]) for (let b = 0; b < 3; b++) { const a = (-90 + 120 * b) * Math.PI / 180; grow(Math.cos(a) * 6.25 * 78, Math.sin(a) * 6.25 * 78 * WEB_YS, 30); }
+      else { grow(0, 0, 160); } // a small base web: keep some sky around it
       web.z = Math.min(W / (x1 - x0), H / (y1 - y0)); web.ox = W / 2 - (x0 + x1) / 2 * web.z; web.oy = H / 2 - (y0 + y1) / 2 * web.z; web.fit = true;
     }
     const g = cv.getContext('2d'), tal = G.talents, list = V.WEB[L.cls].list, at = V.nearTrainer(L.cls, L.x, L.y), t = G.t;
@@ -1571,7 +1588,7 @@
     const P = (n) => { const [x, y] = nodePos(n); return [web.ox + x * web.z, web.oy + y * web.z]; };
     // a nebula of each branch's colour, brighter the more you own in it
     g.globalCompositeOperation = 'lighter';
-    V.TALENTS[L.cls].forEach((br, b) => {
+    (V.TALENTS[L.cls] || []).forEach((br, b) => {
       const a = (-90 + 120 * b) * Math.PI / 180, cx = web.ox + Math.cos(a) * 3.3 * 78 * web.z, cy = web.oy + Math.sin(a) * 3.3 * 78 * web.z * WEB_YS;
       const k = br.nodes.reduce((c, n) => c + (tal[n.id] | 0), 0), R = 3 * 78 * web.z, gr = g.createRadialGradient(cx, cy, 0, cx, cy, R);
       gr.addColorStop(0, BRANCH_COL[b] + (k ? '30' : '18')); gr.addColorStop(1, BRANCH_COL[b] + '00');
@@ -1583,7 +1600,7 @@
     g.strokeStyle = 'rgba(120,100,160,0.12)'; g.lineWidth = 1;
     for (const r of [1.15, 2.2, 3.2, 4.2, 5.3]) { g.beginPath(); g.ellipse(web.ox, web.oy, r * 78 * web.z, r * 78 * web.z * WEB_YS, 0, 0, Math.PI * 2); g.stroke(); }
     g.textAlign = 'center'; g.font = `800 ${Math.max(11, 15 * web.z)}px Cinzel, Georgia, serif`;
-    V.TALENTS[L.cls].forEach((br, b) => {
+    (V.TALENTS[L.cls] || []).forEach((br, b) => {
       const a = (-90 + 120 * b) * Math.PI / 180, x = web.ox + Math.cos(a) * 6.25 * 78 * web.z, y = web.oy + Math.sin(a) * 6.25 * 78 * web.z * WEB_YS;
       g.fillStyle = BRANCH_COL[b]; g.globalAlpha = 0.85; g.fillText(br.name.toUpperCase(), x, y + 5); g.globalAlpha = 1;
     });
@@ -1950,7 +1967,18 @@
   }
 
   let last = 0;
+  // one bad frame must never stop the game: report it in chat and keep going
+  const reported = new Set();
+  function reportError(err, where) {
+    console.error(where || '', err);
+    const msg = (err && err.message) || String(err);
+    if (reported.has(msg)) return; reported.add(msg);
+    try { chatLine(`Error (${where || 'game'}): ${msg}. The game kept running; please tell the developer.`, 'sys'); } catch (e) { /* chat not ready */ }
+  }
   function frame(now) {
+    try { frameStep(now); } catch (err) { reportError(err, 'frame'); requestAnimationFrame(frame); }
+  }
+  function frameStep(now) {
     const dt = Math.min(0.05, (now - last) / 1000 || 0.016); last = now;
     G.t += dt;
     if (G.stop > 0) { G.stop -= dt; render(); requestAnimationFrame(frame); return; }
