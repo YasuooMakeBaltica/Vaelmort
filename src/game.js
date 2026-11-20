@@ -99,10 +99,15 @@
 
   // ---------- sound: one place maps game events to effects ----------
   const SHOT_SND = { '#7fa8ff': 'arcaneShot', '#ff8a3c': 'fireShot', '#ffd86a': 'lanceShot', '#3ccf97': 'soulShot', '#d6e4f2': 'boltShot', '#a6ec4f': 'seedShot', '#7fd04a': 'seedShot', '#e6dfc8': 'bone', '#ff7a2e': 'chain' };
-  const SND_EVENT = { slam: 'slam', doomfall: 'doomfall', raise: 'raise', howl: 'howl', banner: 'banner', land: 'land', shout: 'shout', buff: 'buff', laststand: 'buff',
+  const SND_EVENT = { slam: 'slam', doomfall: 'doomfall', raise: 'raise', howl: 'howl', banner: 'banner', land: 'land', shout: 'shout', laststand: 'avatarBuff',
     fan: 'knives', smokebomb: 'smoke', whiff: 'swing', mark: 'mark', detonate: 'detonate', volley: 'volley', trapset: 'trapset', trapboom: 'trapboom', purge: 'holy',
     rainstart: 'rain', stormstart: 'thunder', bolt: 'thunder', bloom: 'bloom', cloud: 'cloud', pull: 'pull', absorb: 'absorb', die: 'die', crumble: 'kill', revive: 'raise',
     fslam: 'bossSlam', nova: 'nova', roar: 'roar' };
+  // every skill gets a dramatic layer by its school (ultimates get the biggest one) under its own sound
+  const SCHOOL = { castDark: 'raise bonespear plague bonearmor deathmark smoke', castArcane: 'firebolt frostnova arcblink',
+    castHoly: 'purge smite sunbeam blink sanctuary', castNature: 'bloom roots wolves barkskin storm' };
+  const SKILL_SCHOOL = {}; for (const [k, list] of Object.entries(SCHOOL)) for (const sk of list.split(' ')) SKILL_SCHOOL[sk] = k;
+  const BUFF_SND = { bulwark: 'bulwarkBuff', shield: 'boneArmor', avatar: 'avatarBuff', barkskin: 'barkBuff', whirl: 'whirl' };
   function sound(e, pl, foe, isMe) {
     const S = V.Snd; if (!S) return;
     const x = e.x !== undefined ? e.x : foe ? foe.x : pl ? pl.x : undefined, y = e.y !== undefined ? e.y : foe ? foe.y : pl ? pl.y : undefined;
@@ -126,6 +131,8 @@
       case 'bounty': if (isMe) S.play(e.acc ? 'bountyTake' : e.ready ? 'bountyReady' : e.done ? 'bountyDone' : 'xp'); return;
       case 'nope': if (isMe) S.play('nope', undefined, undefined, {}, 0.3); return;
       case 'talents': if (isMe) S.play('learn'); return;
+      case 'cast': if (pl && SKILLS[e.sk]) S.play(SKILLS[e.sk].ult ? 'castUlt' : SKILL_SCHOOL[e.sk] || 'castMight', pl.x, pl.y, {}, 0.05); return;
+      case 'buff': return S.play(BUFF_SND[e.b] || 'shieldBuff', x, y);
       case 'evolve': return S.play('evolve', x, y);
       case 'trial': if (isMe) S.play(e.done ? 'bountyDone' : 'bountyTake'); return;
       case 'fx':

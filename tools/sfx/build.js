@@ -94,6 +94,20 @@ const R = {
   bossSlam: [[L('bang/cannon_01.ogg'), L('r80/stones_01.ogg', { g: -2 })]],
   nova: [[L(FIRE(6)), L('bang/bang_05.ogg', { g: -6, lp: 1500 })]],
   fizzle: [[L(FIRE(7), { d: 0.3, fo: 0.15, r: 1.5, g: -14 })]],
+  // ---- dramatic cast layers, by school (played under every skill's own sound) ----
+  castMight: [[L('rpg/swing3.wav', { r: 0.7, g: -2 }), L('bang/cannon_04.ogg', { r: 0.8, lp: 900, g: -10, echo: 1 }), L('rpg/sword-unsheathe.wav', { r: 0.9, g: -8 })],
+    [L('rpg/swing2.wav', { r: 0.65, g: -2 }), L('r80/stones_03.ogg', { r: 0.7, g: -10, echo: 1 })]],
+  castDark: [[L('one/ghost.mp3', { d: 1.2, fo: 0.5, r: 0.7, g: -4, echo: 1 }), L('rpg/shade9.wav', { r: 0.6, d: 0.9, fo: 0.4, g: -8 })]],
+  castArcane: [[L('one/drain.ogg', { rev: 1, d: 0.6, r: 1.1, g: -4 }), L(GEM[3], { r: 0.8, g: -6, echo: 1 })]],
+  castHoly: [[L('rpg/metal-ringing.wav', { r: 0.7, d: 1.2, fo: 0.5, g: -6, echo: 1 }), L('one/cure.mp3', { s: 0, d: 0.9, fo: 0.4, r: 1.3, g: -8 })]],
+  castNature: [[L('ken/creak3.ogg', { r: 0.8, g: -4 }), L('rpg/cloth-heavy.wav', { r: 0.6, g: -6, echo: 1 })]],
+  castUlt: [[L('rpg/spell.wav', { r: 0.55, d: 1.2, fo: 0.4, g: -2 }), L('bang/cannon_05.ogg', { at: 0.35, r: 0.85, echo: 2 }), L('rpg/metal-ringing.wav', { at: 0.35, r: 0.45, d: 2.4, fo: 1.2, g: -6, echo: 2 })]],
+  // ---- buffs ----
+  bulwarkBuff: [[L('ken/metalPot1.ogg', { r: 0.7 }), L('rpg/metal-ringing.wav', { r: 0.6, d: 1.2, fo: 0.6, g: -6, echo: 1 }), L('rpg/armor-light.wav', { g: -4 })]],
+  boneArmor: [[L('r80/stones_02.ogg', { r: 1.4, g: -2 }), L('r80/wood_03.ogg', { at: 0.08, r: 1.5, g: -4 }), L('one/ghost.mp3', { d: 0.8, fo: 0.4, g: -10 })]],
+  avatarBuff: [[L('rpg/giant2.wav', { r: 0.9, d: 1.4, fo: 0.5, echo: 2 }), L('bang/cannon_03.ogg', { at: 0.1, r: 0.8, g: -4 })]],
+  barkBuff: [[L('ken/creak1.ogg', { r: 0.7 }), L('ken/creak3.ogg', { at: 0.15, r: 0.6, g: -2 }), L('r80/wood_05.ogg', { at: 0.2, r: 0.7, g: -6 })]],
+  shieldBuff: [[L('rpg/magic1.wav', { r: 0.8, d: 1, fo: 0.4, echo: 1 }), L(GEM[2], { r: 0.7, g: -6 })]],
   // ---- base classes ----
   arcaneShot: [[L('r80/spell_01.ogg', { d: 0.4, fo: 0.2, r: 1.25, g: -3 }), L(GEM[1], { r: 1.6, d: 0.2, g: -12 })]],
   fireShot: [[L(FIRE(2), { d: 0.7, fo: 0.3, r: 1.2 }), L('rpg/swing.wav', { r: 0.8, g: -8 })]],
@@ -137,6 +151,7 @@ function build(name, variants) {
       if (o.lp) f.push(`lowpass=f=${o.lp}`);
       if (o.fo && o.d) f.push(`afade=t=out:st=${Math.max(0, o.d / (o.r || 1) - o.fo)}:d=${o.fo}`);
       if (o.g) f.push(`volume=${o.g}dB`);
+      if (o.echo) f.push(`aecho=0.8:0.55:${o.echo === 2 ? '90|180|300:0.45|0.3|0.18' : '70|140:0.35|0.2'}`); // a hall-like tail for drama
       if (o.at) f.push(`adelay=${Math.round(o.at * 1000)}`);
       chains.push(`[${i}:a]${f.join(',')}[l${i}]`);
     });

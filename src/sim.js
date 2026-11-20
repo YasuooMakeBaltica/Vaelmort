@@ -1215,7 +1215,7 @@
       if (e.id !== undefined) { const p = S.players.get(e.id); return p ? [p.x, p.y] : null; }
       return null;
     }
-    const PRIVATE = new Set(['xp', 'bounty', 'nope', 'talents', 'cast', 'trial', 'inv']);
+    const PRIVATE = new Set(['xp', 'bounty', 'nope', 'talents', 'trial', 'inv']); // casts are public so nearby players hear them
     S.view = function (pid, cache, events) {
       const me = S.players.get(pid);
       if (!me) return null;
