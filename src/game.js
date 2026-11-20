@@ -67,6 +67,12 @@
   view.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // ---------- effects ----------
+  const LIGHT_COLS = new Set(['#ffe08a', '#fff3c4', '#ffffff', '#ffd86a']);
+  function sigil(x, y, leaving) { // Lightborn dash: a sigil where it leaves and where it lands
+    G.decals.push({ kind: 'sigil', x, y, r: leaving ? 30 : 36, t: 0, life: 1.5, color: '#ffd86a', spin: leaving ? 1.4 : -1.4 });
+    burst(x, y, 20, leaving ? '#fff3c4' : '#ffe08a', 16, leaving ? 70 : 120, 0.5, 2, { up: 2 });
+    G.bolts.push({ kind: 'column', x, y, t: 0, life: 0.3, w: leaving ? 14 : 18 });
+  }
   function burst(x, y, z, color, n, spd = 60, life = 0.5, size = 1, opt = {}) {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2, s = spd * rnd(0.3, 1);
@@ -96,13 +102,23 @@
     switch (e.e) {
       case 'join': if (G.mode === 'online' && !isMe && e.name) chatLine(`${e.name} entered Vaelmort`, 'sys'); break;
       case 'leave': if (G.mode === 'online' && e.name) chatLine(`${e.name} left`, 'sys'); break;
-      case 'dodge': if (pl && !isMe) burst(pl.x, pl.y, 2, '#6f6879', 8, 40, 0.4, 1, { glow: false }); break;
+      case 'dodge':
+        if (!pl || isMe) break;
+        if (pl.cls === 'lightborn') { sigil(pl.x, pl.y, true); setTimeout(() => { const q = G.players.get(e.id); if (q) sigil(q.x, q.y, false); }, 170); }
+        else burst(pl.x, pl.y, 2, '#6f6879', 8, 40, 0.4, 1, { glow: false });
+        break;
       case 'hit':
         if (!foe) break;
         text(foe.x, foe.y - foe.def.h - 8, e.d, e.c ? '#ffd166' : '#f1ece0', !!e.c);
         burst(foe.x, foe.y, foe.def.h * 0.55, e.col, e.c ? 10 : 4, 80, 0.35);
         foe.flash = 0.12;
         if (e.c && near(foe.x, foe.y, 300)) hitstop(0.03);
+        if (LIGHT_COLS.has(e.col)) { // Lightborn hits: a star glint, sparks of light, a heavier jolt on crits
+          G.bolts.push({ kind: 'glint', x: foe.x, y: foe.y - foe.def.h * 0.55, t: 0, life: e.c ? 0.32 : 0.22, big: !!e.c });
+          burst(foe.x, foe.y, foe.def.h * 0.55, '#fff3c4', e.c ? 14 : 7, e.c ? 150 : 100, 0.4, 1, { up: 1.4 });
+          foe.flash = 0.18;
+          if (e.c) { hitstop(0.05); shake(3, foe.x, foe.y); }
+        }
         break;
       case 'kill':
         if (!foe) break;
@@ -110,6 +126,8 @@
           burst(foe.x, foe.y, 14, '#16121c', 20, 60, 0.9, 2, { glow: false, g: -30 });
           burst(foe.x, foe.y, 16, foe.def.proj ? foe.def.proj.color : '#ff4a3a', 12, 70, 0.6);
         }
+        if (!foe.far) { const k = G.players.get(e.by); if (k && k.cls === 'lightborn') { // the slain rise as motes of light
+          burst(foe.x, foe.y, foe.def.h * 0.5, '#ffe08a', 18, 40, 1.3, 2, { up: 3, g: -60 }); G.bolts.push({ kind: 'column', x: foe.x, y: foe.y, t: 0, life: 0.45, w: 10 }); } }
         foe.dead = true;
         if (foe.def.boss) { text(foe.x, foe.y - foe.def.h - 30, foe.def.name.toUpperCase() + ' FALLS', '#ffcf8a', true); shake(9, foe.x, foe.y); hitstop(0.12); chatLine(`${foe.def.name} has fallen.`, 'loot'); }
         if (G.target === foe) G.target = null;
@@ -278,7 +296,7 @@
         if (pl) { ring(pl.x, pl.y, 90, '#ffd166', 1, 3); ring(pl.x, pl.y, 50, '#fff2c4', 0.8, 2, 0.15); for (let i = 0; i < 40; i++) part({ x: pl.x + rnd(-14, 14), y: pl.y + rnd(-5, 5), z: rnd(0, 10), vz: rnd(40, 90), life: rnd(0.8, 1.4), max: 1.2, color: i % 2 ? '#ffd166' : '#fff2c4', size: 2 }); }
         if (isMe) {
           L.level = e.lv;
-          toast(`Level ${e.lv}`, `A skill point is waiting. Spend it with ${V.TRAINERS[L.cls].name} at ${V.TRAINERS[L.cls].camp}.`, true);
+          toast(`Level ${e.lv}`, V.TRAINERS[L.cls] ? `A skill point is waiting. Spend it with ${V.TRAINERS[L.cls].name} at ${V.TRAINERS[L.cls].camp}.` : 'A skill point is waiting. Spend it on your skill web (N).', true);
           chatLine(`You reached level ${e.lv}.`, 'loot');
           G.flash = 0.2;
         } else if (G.mode === 'online') { const p = G.players.get(e.id); if (p) chatLine(`${p.name} reached level ${e.lv}.`, 'sys'); }
@@ -299,21 +317,25 @@
       case 'fx': { // Lightborn
         const W = '#fff3c4', Gd = '#ffd86a';
         if (e.k === 'smite') {
-          G.bolts.push({ kind: 'bolt', x: e.x, y: e.y, t: 0, life: 0.3, seed: (Math.random() * 1000) | 0 });
+          G.bolts.push({ kind: 'column', x: e.x, y: e.y, t: 0, life: 0.55, w: 34 });
+          G.decals.push({ kind: 'sigil', x: e.x, y: e.y, r: 70, t: 0, life: 1.2, color: Gd, spin: 1 });
           ring(e.x, e.y, 105, Gd, 0.5, 3); ring(e.x, e.y, 60, W, 0.35, 2, 0.05); burst(e.x, e.y, 30, W, 30, 160, 0.6, 2, { up: 2 });
           if (isMe) { G.shake = 5; hitstop(0.04); } else shake(3, e.x, e.y);
         } else if (e.k === 'beam') {
+          G.bolts.push({ kind: 'beam', x: e.x, y: e.y, x1: e.x1, y1: e.y1, t: 0, life: 0.4 });
           for (let i = 0; i <= 24; i++) { const t = i / 24, x = e.x + (e.x1 - e.x) * t, y = e.y + (e.y1 - e.y) * t; burst(x, y, CHEST, i % 3 ? W : Gd, 2, 50, 0.45, 2); }
           G.decals.push({ kind: 'runes', x: (e.x + e.x1) / 2, y: (e.y + e.y1) / 2, r: 20, t: 0, life: 0.6, color: Gd });
           if (isMe) G.shake = 3;
         } else if (e.k === 'blink') {
-          burst(e.x, e.y, 24, W, 26, 120, 0.5, 2); ring(e.x1, e.y1, 90, W, 0.4, 2); burst(e.x1, e.y1, 24, Gd, 26, 140, 0.5, 2, { up: 1.5 });
+          sigil(e.x, e.y, true); sigil(e.x1, e.y1, false); ring(e.x1, e.y1, 90, W, 0.4, 2); burst(e.x1, e.y1, 24, Gd, 26, 140, 0.5, 2, { up: 1.5 });
         } else if (e.k === 'sanctuary') {
           ring(e.x, e.y, 230, Gd, 0.8, 2); ring(e.x, e.y, 160, W, 0.6, 2, 0.12); burst(e.x, e.y, 10, W, 40, 60, 1.2, 2, { up: 3, g: -20 });
+          G.decals.push({ kind: 'sigil', x: e.x, y: e.y, r: 120, t: 0, life: 2, color: Gd, spin: -0.6 }); G.bolts.push({ kind: 'column', x: e.x, y: e.y, t: 0, life: 0.8, w: 26 });
           text(e.x, e.y - 80, 'SANCTUARY', Gd, true);
         } else if (e.k === 'dawn') {
           for (let i = 0; i < 4; i++) ring(e.x, e.y, 90 + i * 60, i % 2 ? W : Gd, 0.5 + i * 0.12, 3, i * 0.06);
           burst(e.x, e.y, 30, W, 80, 260, 0.9, 3, { up: 2 }); G.flash = 0.35;
+          G.bolts.push({ kind: 'flare', x: e.x, y: e.y, t: 0, life: 0.9 }); G.decals.push({ kind: 'sigil', x: e.x, y: e.y, r: 260, t: 0, life: 2.2, color: Gd, spin: 0.4 });
           text(e.x, e.y - 90, 'DAWNBREAK', '#ffffff', true);
           if (isMe) { G.shake = 10; hitstop(0.08); } else shake(6, e.x, e.y);
         }
@@ -324,7 +346,7 @@
         if (e.why === 'empty') say('No skill in that slot (N to open your skills)');
         else if (e.why === 'res') say(`Not enough ${RES[CLASSES[L.cls].res].name}`);
         else if (e.why === 'target') say('Hover an enemy to mark it');
-        else if (e.why === 'trainer') say(`Visit ${V.TRAINERS[L.cls].name} to train`);
+        else if (e.why === 'trainer' && V.TRAINERS[L.cls]) say(`Visit ${V.TRAINERS[L.cls].name} to train`);
         else if (e.why === 'board') say('Walk up to the bounty board');
         else if (e.why === 'bounties') say(`You can carry ${V.MAX_BOUNTIES} bounties at a time`);
         break;
@@ -520,16 +542,18 @@
     const A = G.aim;
     if (wantDodge && L.cdDodge <= 0 && !L.dodge) {
       const dx = il ? ix : Math.cos(A.a), dy = il ? iy : Math.sin(A.a);
-      L.dodge = { t: DODGE_TIME, dx, dy }; L.cdDodge = (K.dodgeCd || DODGE_CD); L.atk = null; L.dodgeEdge = true;
-      burst(L.x, L.y, 2, '#6f6879', 8, 40, 0.4, 1, { glow: false });
+      const blink = L.cls === 'lightborn'; // Lightborn teleports instead of rolling, leaving a sigil where it left and where it lands
+      L.dodge = { t: blink ? 0.07 : DODGE_TIME, dx, dy, blink }; L.cdDodge = (K.dodgeCd || DODGE_CD); L.atk = null; L.dodgeEdge = true;
+      if (blink) sigil(L.x, L.y, true); else burst(L.x, L.y, 2, '#6f6879', 8, 40, 0.4, 1, { glow: false });
     }
     wantDodge = false;
     if (L.dodge) {
       L.dodge.t -= dt;
-      G.coll.moveEnt(L, L.dodge.dx * K.speed * 3.2 * dt, L.dodge.dy * K.speed * 3.2 * dt, 10);
+      const sp = L.dodge.blink ? 16 : 3.2;
+      G.coll.moveEnt(L, L.dodge.dx * K.speed * sp * dt, L.dodge.dy * K.speed * sp * dt, 10);
       L.row = dirRow(L.dodge.dx, L.dodge.dy); L.anim = 'run'; L.animT += dt * 1.6; L.moving = true;
-      G.ghosts.push({ x: L.x, y: L.y, cls: L.cls, anim: 'run', row: L.row, f: frameOf('run', L.animT, L.cls), t: 0, life: 0.22 });
-      if (L.dodge.t <= 0) L.dodge = null;
+      if (!L.dodge.blink) G.ghosts.push({ x: L.x, y: L.y, cls: L.cls, anim: 'run', row: L.row, f: frameOf('run', L.animT, L.cls), t: 0, life: 0.22 });
+      if (L.dodge.t <= 0) { if (L.dodge.blink) sigil(L.x, L.y, false); L.dodge = null; }
       return;
     }
     const whirl = p.buffs & V.BUFF_BITS.whirl;
@@ -702,6 +726,14 @@
           if (!d.cold) { const [ex, ey] = pts[pts.length - 1]; addLight(d.x + ex - cx, d.y + ey - cy, 26, '#ff7a2e', 0.6 * fade); }
         }
         if (!d.cold) addLight(d.x - cx, d.y - cy, 140, '#ff6a2a', 0.9 * fade);
+      } else if (d.kind === 'sigil') { // a circle of light with a turning hexagram
+        const x = d.x - cx, y = d.y - cy, r = d.r * Math.min(1, k * 6), rot = G.t * (d.spin || 1), col = (a) => hexA(d.color, a * fade);
+        ellipse(x, y, r, col(0.12), col(0.9), 2); ellipse(x, y, r * 0.78, null, col(0.7), 1);
+        ctx.strokeStyle = col(0.85); ctx.lineWidth = 1;
+        for (const off of [0, Math.PI / 3]) { ctx.beginPath(); for (let i = 0; i <= 3; i++) { const a = rot + off + i * Math.PI * 2 / 3; const px = x + Math.cos(a) * r * 0.74, py = y + Math.sin(a) * r * 0.37; if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); } ctx.stroke(); }
+        ctx.fillStyle = col(1);
+        for (let i = 0; i < 12; i++) { const a = -rot * 0.7 + i / 12 * Math.PI * 2; ctx.fillRect(Math.round(x + Math.cos(a) * r * 0.89) - 1, Math.round(y + Math.sin(a) * r * 0.445), i % 3 ? 2 : 3, i % 3 ? 1 : 2); }
+        addLight(x, y, r * 1.6, d.color, 0.9 * fade);
       } else if (d.kind === 'runes') {
         const x = d.x - cx, y = d.y - cy, r = d.r * Math.min(1, k * 4);
         ellipse(x, y, r, null, hexA(d.color, fade)); ellipse(x, y, r * 0.65, null, hexA(d.color, fade));
@@ -790,7 +822,8 @@
   function drawPlayer(o, cx, cy, tags) {
     const h = heroFrame(o), isMe = o.id === G.me, B = V.BUFF_BITS, b = o.buffs || 0;
     const x = h.x - cx, y = h.y - cy - h.z;
-    const alpha = (b & B.invis) ? (isMe ? 0.5 : 0.3) : 1;
+    const blinking = h.cls === 'lightborn' && (isMe ? L.dodge && L.dodge.blink : o.dodging);
+    const alpha = blinking ? 0 : (b & B.invis) ? (isMe ? 0.5 : 0.3) : 1;
     if (b & B.avatar) { ellipse(h.x - cx, h.y - cy, 22 + Math.sin(G.t * 10) * 2, hexA('#ff3a2a', 0.15), hexA('#ff6a4a', 0.7)); addLight(x, y - 30, 90, '#ff4a3a', 0.8); }
     if (b & B.bulwark) ellipse(h.x - cx, h.y - cy, 20, null, hexA('#ffcf66', 0.6 + 0.3 * Math.sin(G.t * 8)), 2);
     if (b & B.banner) ellipse(h.x - cx, h.y - cy, 18, null, hexA(glow('warlord'), 0.5 + 0.3 * Math.sin(G.t * 8)));
@@ -909,6 +942,30 @@
 
     for (const b of G.bolts) {
       const x = Math.round(b.x - cx), y = Math.round(b.y - cy), k = b.t / b.life;
+      if (b.kind === 'column') { // a pillar of light from the sky
+        const w = b.w * (1 - k * 0.6), a = 1 - k, g = ctx.createLinearGradient(x - w, 0, x + w, 0);
+        g.addColorStop(0, 'rgba(255,216,106,0)'); g.addColorStop(0.35, `rgba(255,232,160,${0.55 * a})`); g.addColorStop(0.5, `rgba(255,255,255,${0.95 * a})`); g.addColorStop(0.65, `rgba(255,232,160,${0.55 * a})`); g.addColorStop(1, 'rgba(255,216,106,0)');
+        ctx.fillStyle = g; ctx.fillRect(x - w, y - 400, w * 2, 400); addLight(x, y - 30, 160 + b.w * 3, '#ffe08a', a); continue;
+      }
+      if (b.kind === 'beam') { // Sunbeam: a white-hot core with a gold sheath
+        const x1 = Math.round(b.x1 - cx), y1 = Math.round(b.y1 - cy), a = 1 - k;
+        for (const [wd, col] of [[16 * (1 - k * 0.5), `rgba(255,200,90,${0.35 * a})`], [8, `rgba(255,236,170,${0.8 * a})`], [3, `rgba(255,255,255,${a})`]]) { ctx.strokeStyle = col; ctx.lineWidth = wd; ctx.beginPath(); ctx.moveTo(x, y - CHEST); ctx.lineTo(x1, y1 - CHEST); ctx.stroke(); }
+        for (let i = 0; i <= 4; i++) addLight(x + (x1 - x) * i / 4, y + (y1 - y) * i / 4 - CHEST, 90, '#ffe08a', a * 0.8);
+        continue;
+      }
+      if (b.kind === 'glint') { // a four-point star on a Lightborn hit
+        const r = (b.big ? 22 : 13) * (0.4 + k), a = 1 - k; ctx.fillStyle = `rgba(255,248,220,${a})`;
+        ctx.fillRect(x - r, y - 1, r * 2, 2); ctx.fillRect(x - 1, y - r, 2, r * 2); ctx.fillRect(x - r * 0.4, y - r * 0.4, r * 0.8, r * 0.8 > 2 ? 2 : 1);
+        addLight(x, y, b.big ? 90 : 55, '#fff3c4', a); continue;
+      }
+      if (b.kind === 'flare') { // Dawnbreak: a rising sun
+        const a = 1 - k, R = 60 + 260 * Math.sqrt(k), g = ctx.createRadialGradient(x, y - 30, 0, x, y - 30, R);
+        g.addColorStop(0, `rgba(255,255,255,${0.9 * a})`); g.addColorStop(0.3, `rgba(255,232,160,${0.5 * a})`); g.addColorStop(1, 'rgba(255,200,90,0)');
+        ctx.fillStyle = g; ctx.fillRect(x - R, y - 30 - R, R * 2, R * 2);
+        ctx.strokeStyle = `rgba(255,240,190,${0.7 * a})`; ctx.lineWidth = 2;
+        for (let i = 0; i < 12; i++) { const an = i / 12 * Math.PI * 2 + k; ctx.beginPath(); ctx.moveTo(x + Math.cos(an) * R * 0.3, y - 30 + Math.sin(an) * R * 0.3); ctx.lineTo(x + Math.cos(an) * R * 0.9, y - 30 + Math.sin(an) * R * 0.9); ctx.stroke(); }
+        addLight(x, y - 30, 420, '#fff3c4', a); continue;
+      }
       if (b.kind === 'arrow') {
         const top = y - 120 * (1 - k);
         ctx.strokeStyle = '#e6eef6'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x - 4, Math.round(top - 10)); ctx.lineTo(x, Math.round(top)); ctx.stroke();
@@ -1367,7 +1424,7 @@
     if (!G.started) return;
     const avail = V.pointsLeft(L.cls, L.level, G.talents), T = V.TRAINERS[L.cls], at = V.nearTrainer(L.cls, L.x, L.y);
     $('tpText').textContent = `${avail} point${avail === 1 ? '' : 's'} · ${V.spentPoints(L.cls, G.talents)} spent`;
-    $('talNote').textContent = at ? `${T.name} is ready to train you. Click a glowing node to learn it. Drag skills onto your 1–5 bar.`
+    $('talNote').textContent = !T ? 'Light needs no teacher. Click a glowing node to learn it. Drag skills onto your 1–5 bar.' : at ? `${T.name} is ready to train you. Click a glowing node to learn it. Drag skills onto your 1–5 bar.`
       : `Visit ${T.name} at ${T.camp} to buy nodes or reset. You can still drag skills you own onto your bar here.`;
     $('talNote').classList.toggle('ok', at);
     $('respecBtn').hidden = !at;
@@ -1463,9 +1520,9 @@
     const meta = n.kind === 'heart' ? 'Origin · free' : `${n.kind === 'ult' ? 'Ultimate' : n.kind === 'skill' ? 'Skill' : n.kind === 'key' ? 'Keystone' : 'Passive'} · ${n.cost} point${n.cost > 1 ? 's' : ''}${n.max > 1 ? ` per rank · ${rank}/${n.max}` : ''}`;
     let warn = '';
     if (!have || rank < n.max) {
-      if (!V.reachable(L.cls, G.talents, n.id) && n.kind !== 'heart') warn = 'Learn a connected node first.';
+      if (!V.reachable(L.cls, G.talents, n.id) && n.kind !== 'heart') warn = 'Needs ' + n.req.filter((r) => r !== 'heart' && !(G.talents[r] | 0)).map((r) => V.webNode(L.cls, r).name).join(' and ') + ' first.';
       else if (V.pointsLeft(L.cls, L.level, G.talents) < n.cost) warn = 'Not enough skill points.';
-      else if (!V.nearTrainer(L.cls, L.x, L.y)) warn = `Learn it from ${V.TRAINERS[L.cls].name}.`;
+      else if (!V.nearTrainer(L.cls, L.x, L.y)) warn = `Learn it from ${V.TRAINERS[L.cls].name}.`; // (always near for classes without one)
     }
     const sk = n.skill && SKILLS[n.skill];
     return { title: n.name, meta: meta + (sk ? ` · ${sk.cost} ${RES[CLASSES[L.cls].res].name} · ${sk.cd}s` : ''), body: n.desc + (sk && have ? ' Drag it onto your bar.' : ''), warn };
@@ -1526,7 +1583,7 @@
   function renderChar() {
     if (!G.started || !G.self) return;
     const p = me(), s = G.self, Cl = CLASSES[L.cls], mods = V.computeMods(L.cls, G.talents);
-    const power = (1 + 0.07 * (L.level - 1)) * (1 + mods.dmg);
+    const power = (1 + 0.07 * (V.statLv(L.level) - 1)) * (1 + mods.dmg);
     const rows = [['Class', `${G.meta.heroes[L.cls].name} · ${Cl.role}`], ['Level', `${s.lv}${s.lv < V.MAX_LEVEL ? ` (${s.xp.toLocaleString()} / ${s.nx.toLocaleString()} XP)` : ''}`],
       ['Health', p ? `${Math.ceil(p.hp)} / ${p.maxHp}` : '—'], [RES[Cl.res].name, `${s.res} / ${s.rm}`], ['Damage', `${Math.round(power * 100)}%`],
       ['Critical chance', `${Math.round((0.06 + mods.crit) * 100)}%`], ['Damage reduction', `${Math.round(Math.min(0.75, Cl.armor + mods.armor) * 100)}%`],
@@ -1761,9 +1818,10 @@
     chatLog.textContent = '';
     chatLine(`Welcome to Vaelmort, ${w.name}. Press Enter to chat.`, 'sys');
     if (L.level === 1) chatLine('Hollows and Dire Wolves roam the Mourning Wood to the north. Take bounties from the board in town (E).', 'sys');
-    chatLine(`Your trainer, ${V.TRAINERS[L.cls].name}, keeps camp at ${V.TRAINERS[L.cls].camp}. Camps are marked on your map and enemies will not follow you into them.`, 'sys');
+    if (V.TRAINERS[L.cls]) chatLine(`Your trainer, ${V.TRAINERS[L.cls].name}, keeps camp at ${V.TRAINERS[L.cls].camp}. Camps are marked on your map and enemies will not follow you into them.`, 'sys');
+    else chatLine('You need no trainer: learn skills anywhere from your skill web (N).', 'sys');
     lastBounties = ''; lastPrompt = '-'; lastAtTrainer = null; barKey = '';
-    if (w.refunded) { chatLine(`Skills are now bought on the skill web. Your ${V.talentPoints(w.level)} points were refunded: visit ${V.TRAINERS[L.cls].name} to spend them.`, 'loot'); toast('Skill points refunded', `Visit ${V.TRAINERS[L.cls].name} at ${V.TRAINERS[L.cls].camp}`, true); }
+    if (w.refunded && V.TRAINERS[L.cls]) { chatLine(`Skills are now bought on the skill web. Your ${V.talentPoints(w.level)} points were refunded: visit ${V.TRAINERS[L.cls].name} to spend them.`, 'loot'); toast('Skill points refunded', `Visit ${V.TRAINERS[L.cls].name} at ${V.TRAINERS[L.cls].camp}`, true); }
     updateClassHud();
     $('screenChars').hidden = true; $('screenLogin').hidden = true; $('hud').classList.add('live'); view.classList.add('live');
     G.started = true; G.zone = -1; lastZoneLabel = -2; view.focus?.();

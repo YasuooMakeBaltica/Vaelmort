@@ -5,12 +5,13 @@
   const V = root.V || (root.V = {});
 
   V.SEED = 1337;
-  V.MAX_LEVEL = 30;
+  V.MAX_LEVEL = 200;   // one skill point per level: 199 points buys a whole skill web (see V.COST)
+  V.statLv = (lv) => lv;
   V.MAX_CHARS = 4;
   V.DODGE_CD = 1.1;
   V.DODGE_TIME = 0.22;
   V.CHEST = 24;
-  V.xpNext = (lv) => Math.round(80 * Math.pow(lv, 1.35));
+  V.xpNext = (lv) => Math.round(70 * Math.pow(lv, 1.15));
   V.foeXp = (lv, elite, boss) => Math.round((10 + 5 * lv) * (elite ? 3 : 1) * (boss ? 12 : 1));
   V.xpScale = (playerLv, foeLv) => { const d = playerLv - foeLv; return d >= 6 ? 0.1 : d >= 4 ? 0.5 : d <= -3 ? 1.3 : 1; };
   V.talentPoints = (lv) => Math.max(0, lv - 1);
@@ -121,7 +122,6 @@
     hunter: { name: 'Inquisitor Sable', camp: 'Sable\'s Watch', at: [13, 7.5] },
     necromancer: { name: 'Morvane', camp: 'The Ossuary', at: [8.6, -12.3] },
     doomknight: { name: 'Ser Halvard', camp: 'Cinder Bastion', at: [-8.6, 12.3] },
-    lightborn: { name: 'The Dawnkeeper', camp: 'Dawn Shrine', at: [-2.5, 5] },
   };
   V.BOARD_AT = [1.2, 4];       // the bounty board in Vaelmort Gate
   V.CAMP_R = 130;              // ground px around a camp where you are safe
@@ -135,7 +135,8 @@
     for (const [tx, ty] of campPts) if (V.gdist(x, y, tx, ty) < V.CAMP_R) return true;
     return false;
   };
-  V.nearTrainer = (cls, x, y, pad = 0) => { const [tx, ty] = V.trainerPos(cls); return V.gdist(x, y, tx, ty) < V.INTERACT + pad; };
+  // classes without a trainer (Lightborn) learn anywhere, straight from the skill web
+  V.nearTrainer = (cls, x, y, pad = 0) => { if (!V.TRAINERS[cls]) return true; const [tx, ty] = V.trainerPos(cls); return V.gdist(x, y, tx, ty) < V.INTERACT + pad; };
   V.nearBoard = (x, y, pad = 0) => { const [bx, by] = V.boardPos(); return V.gdist(x, y, bx, by) < V.INTERACT + pad; };
   // bounty state per zone: { i: which bounty in the zone's list, n: kills so far, st: 0 on the board, 1 accepted, 2 ready to turn in }
   V.cleanBounties = (b) => {
@@ -238,11 +239,13 @@
   const BRIDGE = [{ hp: 0.04 }, { dmg: 0.03 }, { crit: 0.02 }];
   const BRIDGE_TXT = ['+4% maximum health per rank.', '+3% damage per rank.', '+2% critical chance per rank.'];
   const BRIDGE_NAME = ['Kinship', 'Convergence', 'Alignment'];
+  // prices: a whole web (3 skills, 30 passive ranks, 3 keystones, 4 bridge ranks, the ultimate) costs 199 = points at level 200
+  V.COST = { skill: 7, passive: 4, key: 9, ult: 15 };
   V.WEB = {};
   for (const cls of V.ALL_CLASSES) {
     const sk = V.CLASSES[cls].skills, tree = V.TALENTS[cls], nodes = {}, list = [];
-    const add = (n) => { n.links = n.links || []; nodes[n.id] = n; list.push(n); return n; };
-    const link = (a, b) => { nodes[a].links.push(b); nodes[b].links.push(a); };
+    const add = (n) => { n.links = n.links || []; n.req = []; nodes[n.id] = n; list.push(n); return n; };
+    const link = (a, b) => { nodes[a].links.push(b); nodes[b].links.push(a); nodes[b].req.push(a); }; // a must be owned before b
     add({ id: 'heart', kind: 'heart', name: V.CLASSES[cls].basic.name + ' & ' + V.SKILLS[sk[0]].name, max: 1, cost: 0, ring: 0, lat: 0, b: -1, skill: sk[0],
       desc: `Where every ${cls === 'hunter' ? 'witch hunter' : cls} begins. Grants ${V.SKILLS[sk[0]].name}.` });
     // give each branch the skill its talents upgrade most
@@ -255,8 +258,8 @@
     }
     tree.forEach((br, b) => {
       const n = br.nodes, s = pick[b];
-      add({ id: s, kind: 'skill', skill: s, name: V.SKILLS[s].name, max: 1, cost: 1, ring: 1.15, lat: 0, b, desc: V.SKILLS[s].desc }); link('heart', s);
-      const P = (t, ring, lat, kind) => add(Object.assign({}, t, { kind: kind || (t.mod.flag ? 'key' : 'passive'), cost: 1, ring, lat, b }));
+      add({ id: s, kind: 'skill', skill: s, name: V.SKILLS[s].name, max: 1, cost: V.COST.skill, ring: 1.15, lat: 0, b, desc: V.SKILLS[s].desc }); link('heart', s);
+      const P = (t, ring, lat, kind) => { const k = kind || (t.mod.flag ? 'key' : 'passive'); return add(Object.assign({}, t, { kind: k, cost: V.COST[k], ring, lat, b })); };
       P(n[0], 2.2, 0); link(s, n[0].id);
       P(n[1], 3.2, -0.55); P(n[2], 3.2, 0.55); link(n[0].id, n[1].id); link(n[0].id, n[2].id);
       P(n[3], 4.2, 0); link(n[1].id, n[3].id); link(n[2].id, n[3].id);
@@ -265,18 +268,19 @@
     // bridges between neighbouring branches, the ultimate between branches 0 and 1
     for (let b = 1; b <= 2; b++) {
       const id = cls + '_x' + b, right = (b + 1) % 3;
-      add({ id, kind: 'passive', name: BRIDGE_NAME[b], max: 2, cost: 1, ring: 3.5, lat: 0, b: b + 0.5, mod: BRIDGE[b], desc: BRIDGE_TXT[b] });
-      link(id, tree[b].nodes[2].id); link(id, tree[right].nodes[1].id);
+      add({ id, kind: 'passive', name: BRIDGE_NAME[b], max: 2, cost: V.COST.passive, ring: 3.5, lat: 0, b: b + 0.5, mod: BRIDGE[b], desc: BRIDGE_TXT[b] });
+      link(tree[b].nodes[2].id, id); link(tree[right].nodes[1].id, id);
     }
     const u = sk[4];
-    add({ id: u, kind: 'ult', skill: u, name: V.SKILLS[u].name, max: 1, cost: 3, ring: 5.6, lat: 0, b: 0.5, desc: V.SKILLS[u].desc });
-    link(u, tree[0].nodes[3].id); link(u, tree[1].nodes[3].id);
+    add({ id: u, kind: 'ult', skill: u, name: V.SKILLS[u].name, max: 1, cost: V.COST.ult, ring: 5.6, lat: 0, b: 0.5, desc: V.SKILLS[u].desc });
+    link(tree[0].nodes[3].id, u); link(tree[1].nodes[3].id, u);
     V.WEB[cls] = { nodes, list };
   }
   V.webNode = (cls, id) => V.WEB[cls].nodes[id] || null;
   V.spentPoints = (cls, talents) => { let s = 0; for (const id in talents || {}) { const n = V.webNode(cls, id); if (n) s += (talents[id] | 0) * n.cost; } return s; };
   V.pointsLeft = (cls, level, talents) => V.talentPoints(level) - V.spentPoints(cls, talents);
-  V.reachable = (cls, talents, id) => { const n = V.webNode(cls, id); return !!n && n.links.some((l) => l === 'heart' || (talents[l] | 0) > 0); };
+  // every node it grows from must be owned (nodes where two paths meet need both)
+  V.reachable = (cls, talents, id) => { const n = V.webNode(cls, id); return !!n && n.req.length > 0 && n.req.every((l) => l === 'heart' || (talents[l] | 0) > 0); };
   // can this character put one more point into node id?
   V.canLearn = (cls, level, talents, id) => {
     const n = V.webNode(cls, id);
@@ -359,28 +363,28 @@
   V.MINION_ART = { skeleton: 'skelminion', wolf: 'spiritwolf' };
   V.foeStats = (type, lv, elite) => {
     const d = V.FOES[type];
-    return { hp: Math.round(d.hp * (1 + 0.16 * (lv - 1)) * (elite ? 2.5 : 1)), dmg: d.dmg * (1 + 0.12 * (lv - 1)) * (elite ? 1.4 : 1) };
+    return { hp: Math.round(d.hp * (1 + 0.13 * (lv - 1)) * (elite ? 2.5 : 1)), dmg: d.dmg * (1 + 0.105 * (lv - 1)) * (elite ? 1.4 : 1) };
   };
 
   // ---------- zones (index matches world.js zone ids) ----------
   V.ZONE_INFO = [
     { name: 'Vaelmort Gate', sub: 'The last lit stones. You are safe here.', lv: [0, 0], dark: 0.4, safe: true },
-    { name: 'Mourning Wood', sub: 'Hollows walk between the pines', lv: [1, 6], dark: 0.58,
+    { name: 'Mourning Wood', sub: 'Hollows walk between the pines', lv: [1, 35], dark: 0.58,
       spawns: [['hollow', 16], ['wolf', 12]], boss: 'thornback',
       bounties: [{ name: 'Cull the Hollows', types: ['hollow'], n: 8 }, { name: 'Thin the Pack', types: ['wolf'], n: 6 }, { name: 'The Old Wolf', types: ['thornback'], n: 1 }] },
-    { name: 'Drowned Graves', sub: 'Wisps drift over black water', lv: [8, 13], dark: 0.58,
+    { name: 'Drowned Graves', sub: 'Wisps drift over black water', lv: [49, 83], dark: 0.58,
       spawns: [['wisp', 12], ['drowned', 12], ['archer', 6]], boss: 'matron',
       bounties: [{ name: 'Lay the Wisps to Rest', types: ['wisp'], n: 8 }, { name: 'Return the Drowned', types: ['drowned'], n: 8 }, { name: 'The Matron Below', types: ['matron'], n: 1 }] },
-    { name: 'Ember Ruins', sub: 'The Warden keeps the old flame', lv: [12, 17], dark: 0.5,
+    { name: 'Ember Ruins', sub: 'The Warden keeps the old flame', lv: [76, 111], dark: 0.5,
       spawns: [['cinder', 12], ['imp', 10], ['golem', 7]], boss: 'warden',
       bounties: [{ name: 'Snuff the Cinders', types: ['cinder'], n: 8 }, { name: 'Golem Breaker', types: ['golem'], n: 4 }, { name: 'The Ember Warden', types: ['warden'], n: 1 }] },
-    { name: 'Bleak Moor', sub: 'Barrows split open in the wind', lv: [4, 9], dark: 0.45,
+    { name: 'Bleak Moor', sub: 'Barrows split open in the wind', lv: [22, 56], dark: 0.45,
       spawns: [['skeleton', 12], ['archer', 10], ['wolf', 6]],
       bounties: [{ name: 'Barrow Watch', types: ['skeleton'], n: 8 }, { name: 'Break the Bows', types: ['archer'], n: 6 }] },
-    { name: 'Frostmire', sub: 'Nothing thaws here, not even the dead', lv: [17, 23], dark: 0.42,
+    { name: 'Frostmire', sub: 'Nothing thaws here, not even the dead', lv: [111, 152], dark: 0.42,
       spawns: [['frostwolf', 14], ['wraith', 12], ['icegolem', 7]], boss: 'revenant',
       bounties: [{ name: 'Wolves of the Rime', types: ['frostwolf'], n: 8 }, { name: 'Shatter the Wraiths', types: ['wraith'], n: 8 }, { name: 'The Frost Revenant', types: ['revenant'], n: 1 }] },
-    { name: 'Sundered Reach', sub: 'Where the Hollow King waits', lv: [23, 30], dark: 0.62,
+    { name: 'Sundered Reach', sub: 'Where the Hollow King waits', lv: [152, 200], dark: 0.62,
       spawns: [['stalker', 14], ['voidwisp', 12], ['hknight', 8]], boss: 'hollowking',
       bounties: [{ name: 'Stalk the Stalkers', types: ['stalker'], n: 8 }, { name: 'Void Lights', types: ['voidwisp'], n: 8 }, { name: 'Knights of Nothing', types: ['hknight'], n: 5 }, { name: 'The Hollow King', types: ['hollowking'], n: 1 }] },
   ];

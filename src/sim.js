@@ -73,9 +73,9 @@
     function applyStats(p, full) {
       const Cl = CLASSES[p.cls], old = p.maxHp || 1;
       p.mods = V.computeMods(p.cls, p.talents);
-      p.maxHp = R(Cl.hp * (1 + 0.1 * (p.level - 1)) * (1 + p.mods.hp));
+      p.maxHp = R(Cl.hp * (1 + 0.1 * (V.statLv(p.level) - 1)) * (1 + p.mods.hp));
       p.hp = full ? p.maxHp : Math.min(p.maxHp, p.hp * p.maxHp / old);
-      p.power = (1 + 0.07 * (p.level - 1)) * (1 + p.mods.dmg);
+      p.power = (1 + 0.07 * (V.statLv(p.level) - 1)) * (1 + p.mods.dmg);
       p.resMax = 100;
     }
     S.addPlayer = function (pid, ch = {}) {
@@ -201,7 +201,7 @@
       if (m.seq !== p.seq || !Number.isFinite(m.x) || !Number.isFinite(m.y) || p.dead > 0) return;
       if (opts.validate) {
         const dt = Math.min(1, Math.max(0, S.t - p.lastPosT));
-        const burst = p.dodgeT > -0.2 ? 3.4 : 1;
+        const burst = p.dodgeT > -0.2 ? (p.cls === 'lightborn' ? 9 : 3.4) : 1; // Lightborn's dash is a short teleport
         const max = speedOf(p) * 1.25 * (dt + 0.15) * burst + 30;
         if (Math.hypot(m.x - p.x, m.y - p.y) > max || C.solidAt(m.x, m.y, 6)) { correct(p); return; }
       }
@@ -360,7 +360,7 @@
       return [ex, ey];
     }
     function summon(p, kind, n, life) {
-      const isSk = kind === 'skeleton', hpMul = (1 + p.mods.summonHp) * (1 + 0.1 * (p.level - 1));
+      const isSk = kind === 'skeleton', hpMul = (1 + p.mods.summonHp) * (1 + 0.1 * (V.statLv(p.level) - 1));
       const mine = S.minions.filter((m) => m.owner === p.id && m.kind === kind && m.hp > 0 && m.life > 0);
       while (mine.length + n > (isSk ? 9 : 3)) mine.shift().life = 0;
       const pts = [];
