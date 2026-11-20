@@ -25,8 +25,8 @@ const sim = V.createSim(map, meta, { validate: true });
 const store = createStore();
 
 // ---------- static files ----------
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.md': 'text/markdown; charset=utf-8' };
-const PUBLIC = [/^index\.html$/, /^admin\.html$/, /^src\/[a-z]+\.js$/, /^assets\/heroes\/heroes\.json$/, /^assets\/heroes\/sheets\/[a-z_]+\.png$/, /^assets\/foes\/foes\.json$/, /^assets\/foes\/[a-z_]+\.png$/, /^assets\/props\/props\.json$/, /^assets\/props\/[a-z_0-9]+\.png$/];
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.mp3': 'audio/mpeg', '.md': 'text/markdown; charset=utf-8' };
+const PUBLIC = [/^index\.html$/, /^admin\.html$/, /^src\/[a-z]+\.js$/, /^assets\/heroes\/heroes\.json$/, /^assets\/heroes\/sheets\/[a-z_]+\.png$/, /^assets\/foes\/foes\.json$/, /^assets\/foes\/[a-z_]+\.png$/, /^assets\/props\/props\.json$/, /^assets\/props\/[a-z_0-9]+\.png$/, /^assets\/music\/[a-z]+\.mp3$/];
 const indexHtml = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8')
   .replace(/<meta name="vaelmort-server" content="[^"]*">/, '<meta name="vaelmort-server" content="same-origin">');
 const server = http.createServer((req, res) => {
@@ -36,6 +36,13 @@ const server = http.createServer((req, res) => {
   if (!PUBLIC.some((re) => re.test(rel))) { res.writeHead(404, { 'content-type': 'text/plain' }); res.end('Not found'); return; }
   try {
     const html = rel.endsWith('.html'), body = html ? indexHtml(rel) : fs.readFileSync(path.join(ROOT, rel));
+    const range = !html && /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || ''); // audio streams ask for byte ranges (Safari requires it)
+    if (range) {
+      const start = range[1] ? +range[1] : body.length - +range[2], end = range[1] && range[2] ? Math.min(+range[2], body.length - 1) : body.length - 1;
+      if (start >= body.length || start < 0 || start > end) { res.writeHead(416, { 'content-range': `bytes */${body.length}` }); res.end(); return; }
+      res.writeHead(206, { 'content-type': TYPES[path.extname(rel)] || 'application/octet-stream', 'content-range': `bytes ${start}-${end}/${body.length}`, 'accept-ranges': 'bytes', 'content-length': end - start + 1, 'cache-control': 'public, max-age=86400' });
+      res.end(body.subarray(start, end + 1)); return;
+    }
     res.writeHead(200, { 'content-type': TYPES[path.extname(rel)] || 'application/octet-stream', 'cache-control': html ? 'no-cache' : 'public, max-age=300' });
     res.end(body);
   } catch (e) { res.writeHead(404); res.end('Not found'); }

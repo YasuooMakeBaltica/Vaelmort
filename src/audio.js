@@ -1,5 +1,5 @@
-// Vaelmort sound: everything is synthesized live with Web Audio (no audio files).
-// Music: a small step sequencer plays one theme per place (menu, town, six zones, bosses) and crossfades between them.
+// Vaelmort sound: effects and ambience are synthesized live with Web Audio; music is streamed from assets/music.
+// Music: composed pieces rendered offline by tools/music into assets/music, streamed per place and crossfaded.
 // Effects: combat, skills, UI, footsteps; positioned by distance and stereo pan from the listener (the player).
 // Ambience: wind and per-zone sounds (wolves, drips, embers, ice, void whispers, fire near braziers).
 (function (V) {
@@ -39,7 +39,7 @@
     if (!ac) return;
     const t = ac.currentTime, m = vol.muted ? 0 : vol.master;
     master.gain.setTargetAtTime(m, t, 0.05);
-    busMusic.gain.setTargetAtTime(vol.music * 0.5, t, 0.05);
+    busMusic.gain.setTargetAtTime(vol.music * 0.9, t, 0.05);
     busSfx.gain.setTargetAtTime(vol.sfx, t, 0.05);
     busAmb.gain.setTargetAtTime(vol.amb * 0.7, t, 0.05);
   }
@@ -51,7 +51,6 @@
   };
   for (const ev of ['pointerdown', 'keydown']) addEventListener(ev, Snd.unlock, { capture: true });
   Snd.settings = () => Object.assign({}, vol);
-  Snd.state = () => ({ ctx: ac ? ac.state : 'none', tracks: playing.map((t) => t.name + (t.dying ? ' (fading)' : '')), wanted });
   Snd.set = (k, v) => { vol[k] = v; save(); applyVolume(); };
   Snd.toggleMute = () => { vol.muted = !vol.muted; save(); applyVolume(); return vol.muted; };
 
@@ -92,77 +91,29 @@
     frame(d, t, m, dur, v) { const g = out(d, 0.3); env(g, t, 0.002, 0.35 * v, 0.28); const o = osc('sine', 170, t, 0.3, g); o.frequency.exponentialRampToValueAtTime(95, t + 0.15); noise(t, 0.05, filt('bandpass', 900, 1, gainTo(g, 0.4))); },
   };
 
-  // ---------- themes ----------
-  // scale: semitone steps; prog: chord roots as scale degrees (2 bars each); pattern strings are 16 steps per bar
-  const SC = { aeolian: [0, 2, 3, 5, 7, 8, 10], dorian: [0, 2, 3, 5, 7, 9, 10], phrygian: [0, 1, 3, 5, 7, 8, 10], harm: [0, 2, 3, 5, 7, 8, 11], locrian: [0, 1, 3, 5, 6, 8, 10] };
-  const TRACKS = {
-    menu: { bpm: 58, root: 50, scale: 'harm', prog: [0, 5, 3, 4], pad: 'choir', lead: 'bell', leadRate: 0.12, leadOct: 24, drone: true },
-    town: { bpm: 74, root: 53, scale: 'dorian', prog: [0, 3, 6, 4], pad: 'pad', arp: 'pluck', arpPat: 'x.x.x.x.x.x.x.x.', bass: 'x.......x...x...', lead: 'flute', leadRate: 0.22, leadOct: 12 },
-    wood: { bpm: 66, root: 57, scale: 'aeolian', prog: [0, 5, 6, 4], pad: 'pad', arp: 'harp', arpPat: 'x..x..x.x..x..x.', lead: 'flute', leadRate: 0.14, leadOct: 12, drum: 'frame', drumPat: 'x.......x..x....' },
-    moor: { bpm: 70, root: 52, scale: 'aeolian', prog: [0, 3, 0, 5], pad: 'pad', bass: 'x.....x.x.......', lead: 'flute', leadRate: 0.1, leadOct: 24, drone: true },
-    graves: { bpm: 54, root: 49, scale: 'phrygian', prog: [0, 1, 0, 6], pad: 'choir', lead: 'bell', leadRate: 0.16, leadOct: 24, drone: true },
-    ruins: { bpm: 84, root: 55, scale: 'harm', prog: [0, 5, 4, 0], pad: 'pad', bass: 'x..x..x.x..x..x.', lead: 'brass', leadRate: 0.12, leadOct: 0, drum: 'taiko', drumPat: 'x.......x.x.....' },
-    frost: { bpm: 60, root: 59, scale: 'aeolian', prog: [0, 5, 2, 6], pad: 'pad', arp: 'bell', arpPat: 'x...x...x...x...', lead: 'bell', leadRate: 0.1, leadOct: 24 },
-    reach: { bpm: 50, root: 50, scale: 'locrian', prog: [0, 1, 4, 1], pad: 'choir', lead: 'bell', leadRate: 0.08, leadOct: 12, drone: true, drum: 'taiko', drumPat: 'x...............' },
-    boss: { bpm: 126, root: 52, scale: 'harm', prog: [0, 0, 5, 4], pad: 'choir', bass: 'x.x.x.x.x.x.x.x.', lead: 'brass', leadRate: 0.35, leadOct: 12, drum: 'kick', drumPat: 'x...x...x...x...', snarePat: '....x.......x...', hatPat: 'x.x.x.x.x.x.x.x.' },
-  };
+  // ---------- music: composed pieces rendered offline (tools/music) and streamed per place ----------
   Snd.ZONE_TRACK = ['town', 'wood', 'graves', 'ruins', 'moor', 'frost', 'reach'];
-  let current = null; const playing = [];
-  function startTrack(name) {
-    const def = TRACKS[name], g = ac.createGain(); g.gain.value = 0.0001; g.connect(busMusic);
-    g.gain.exponentialRampToValueAtTime(1, ac.currentTime + 3);
-    const tr = { name, def, g, step: 0, next: ac.currentTime + 0.1, scale: SC[def.scale], leadNote: 0, drone: null };
-    if (def.drone) { // a low sustained root and fifth with a slowly breathing filter
-      const f = filt('lowpass', 300, 3, gainTo(g, 0.18)), lfo = ac.createOscillator(), lg = ac.createGain();
-      lfo.frequency.value = 0.07; lg.gain.value = 180; lfo.connect(lg); lg.connect(f.frequency); lfo.start();
-      const o1 = ac.createOscillator(), o2 = ac.createOscillator(); o1.type = 'sawtooth'; o2.type = 'sawtooth';
-      o1.frequency.value = mtof(def.root - 24); o2.frequency.value = mtof(def.root - 17); o1.connect(f); o2.connect(f); o1.start(); o2.start();
-      tr.drone = [o1, o2, lfo];
-    }
-    playing.push(tr);
-    return tr;
+  const MUSIC_DIR = 'assets/music/';
+  const tracks = new Map(); // name -> { el, g }
+  let current = null, wanted = null;
+  function trackFor(name) {
+    if (tracks.has(name)) return tracks.get(name);
+    const el = new Audio(MUSIC_DIR + name + '.mp3'); el.loop = true; el.preload = 'auto'; el.crossOrigin = 'anonymous';
+    const g = ac.createGain(); g.gain.value = 0.0001; g.connect(busMusic);
+    try { ac.createMediaElementSource(el).connect(g); } catch (e) { /* already wired */ }
+    const t = { name, el, g }; tracks.set(name, t); return t;
   }
-  function stopTrack(tr) {
-    const t = ac.currentTime; tr.g.gain.cancelScheduledValues(t); tr.g.gain.setValueAtTime(Math.max(0.0001, tr.g.gain.value), t); tr.g.gain.exponentialRampToValueAtTime(0.0001, t + 2.5);
-    tr.dying = t + 2.6;
-  }
-  let wanted = null;
   Snd.music = (name) => {
     wanted = name;
-    if (!ac || ac.state !== 'running' || !TRACKS[name] || (current && current.name === name && !current.dying)) return;
-    if (current) stopTrack(current);
-    current = startTrack(name);
+    if (!ac || ac.state !== 'running' || (current && current.name === name)) return;
+    const t = ac.currentTime;
+    if (current) { const old = current; old.g.gain.cancelScheduledValues(t); old.g.gain.setValueAtTime(Math.max(0.0001, old.g.gain.value), t); old.g.gain.exponentialRampToValueAtTime(0.0001, t + 2.5); setTimeout(() => { if (current !== old) old.el.pause(); }, 2700); }
+    const nx = trackFor(name); current = nx;
+    nx.g.gain.cancelScheduledValues(t); nx.g.gain.setValueAtTime(Math.max(0.0001, nx.g.gain.value), t); nx.g.gain.exponentialRampToValueAtTime(1, t + 3);
+    const p = nx.el.play(); if (p && p.catch) p.catch(() => {});
   };
-  const deg = (tr, d, oct = 0) => { const s = tr.scale, n = s.length, k = ((d % n) + n) % n; return tr.def.root + s[k] + 12 * Math.floor(d / n) + oct; };
-  function playStep(tr, t) {
-    const D = tr.def, st = tr.step % 16, bar = Math.floor(tr.step / 16), sixteenth = 60 / D.bpm / 4;
-    const chord = D.prog[Math.floor(bar / 2) % D.prog.length];
-    if (st === 0 && bar % 2 === 0) for (const k of [0, 2, 4]) INST[D.pad](tr.g, t, deg(tr, chord + k), sixteenth * 32 - 0.1, 0.8);
-    if (D.bass && D.bass[st] === 'x') INST.bass(tr.g, t, deg(tr, chord, -12), sixteenth * 2.5, 0.9);
-    if (D.arp && D.arpPat[st] === 'x') { const k = [0, 2, 4, 7][Math.floor(st / 2) % 4]; INST[D.arp](tr.g, t, deg(tr, chord + k, 12), sixteenth * 2, 0.7); }
-    if (D.drum && D.drumPat[st] === 'x') INST[D.drum](tr.g, t, 0, 0.3, 0.8);
-    if (D.snarePat && D.snarePat[st] === 'x') INST.snare(tr.g, t, 0, 0.2, 0.7);
-    if (D.hatPat && D.hatPat[st] === 'x') INST.hat(tr.g, t, 0, 0.05, st % 4 ? 0.5 : 0.9);
-    // the melody wanders the scale near the chord, resting often
-    if (st % 2 === 0 && Math.random() < D.leadRate) {
-      tr.leadNote = Math.max(-2, Math.min(9, tr.leadNote + [-2, -1, -1, 1, 1, 2, 0][(Math.random() * 7) | 0]));
-      if (st === 0) tr.leadNote = [0, 2, 4][(Math.random() * 3) | 0];
-      INST[D.lead](tr.g, t, deg(tr, chord + tr.leadNote, D.leadOct), sixteenth * (Math.random() < 0.5 ? 4 : 8), 0.8);
-    }
-    tr.step++;
-  }
-  function tick() {
-    if (!ac || ac.state !== 'running') return;
-    const now = ac.currentTime;
-    for (let i = playing.length - 1; i >= 0; i--) {
-      const tr = playing[i];
-      if (tr.dying && now > tr.dying) { if (tr.drone) tr.drone.forEach((o) => o.stop()); tr.g.disconnect(); playing.splice(i, 1); continue; }
-      if (tr.dying) continue;
-      if (tr.next < now - 0.5) tr.next = now + 0.05; // the tab was asleep
-      while (tr.next < now + 0.2) { playStep(tr, tr.next); tr.next += 60 / tr.def.bpm / 4; }
-    }
-    ambienceTick(now);
-  }
+  Snd.state = () => ({ ctx: ac ? ac.state : 'none', track: current && current.name, wanted, playing: current ? !current.el.paused : false });
+  function tick() { if (ac && ac.state === 'running') ambienceTick(ac.currentTime); }
 
   // ---------- positioned effects ----------
   const listener = { x: 0, y: 0 };
