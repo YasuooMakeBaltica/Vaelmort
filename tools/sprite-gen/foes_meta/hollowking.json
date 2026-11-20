@@ -1,0 +1,1 @@
+{"frameW":232,"frameH":256,"ax":116,"ay":220,"anims":{"idle":{"frames":6,"fps":6,"file":"hollowking_idle.png"},"run":{"frames":8,"fps":10,"file":"hollowking_run.png"},"attack":{"frames":8,"fps":12,"file":"hollowking_attack.png","hit":4}}}

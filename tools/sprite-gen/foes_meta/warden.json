@@ -1,0 +1,1 @@
+{"frameW":208,"frameH":232,"ax":104,"ay":200,"anims":{"idle":{"frames":6,"fps":6,"file":"warden_idle.png"},"run":{"frames":8,"fps":10,"file":"warden_run.png"},"attack":{"frames":8,"fps":12,"file":"warden_attack.png","hit":4}}}

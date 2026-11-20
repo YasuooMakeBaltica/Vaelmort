@@ -1,0 +1,1 @@
+{"frameW":104,"frameH":96,"ax":52,"ay":83,"anims":{"idle":{"frames":6,"fps":6,"file":"wolf_idle.png"},"run":{"frames":8,"fps":14,"file":"wolf_run.png"},"attack":{"frames":8,"fps":12,"file":"wolf_attack.png","hit":4}}}

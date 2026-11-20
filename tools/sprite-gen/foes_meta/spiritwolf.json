@@ -1,0 +1,1 @@
+{"frameW":96,"frameH":88,"ax":48,"ay":76,"anims":{"idle":{"frames":6,"fps":6,"file":"spiritwolf_idle.png"},"run":{"frames":8,"fps":14,"file":"spiritwolf_run.png"},"attack":{"frames":8,"fps":12,"file":"spiritwolf_attack.png","hit":4}}}

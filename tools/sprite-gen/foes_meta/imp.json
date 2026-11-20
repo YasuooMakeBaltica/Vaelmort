@@ -1,0 +1,1 @@
+{"frameW":104,"frameH":104,"ax":52,"ay":89,"anims":{"idle":{"frames":6,"fps":10,"file":"imp_idle.png"},"run":{"frames":6,"fps":14,"file":"imp_run.png"},"attack":{"frames":8,"fps":12,"file":"imp_attack.png","hit":4}}}

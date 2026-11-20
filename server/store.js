@@ -19,8 +19,8 @@ async function checkPassword(pass, salt, hash) {
 
 function jsonBackend(file) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  let db = { accounts: {}, sessions: {} };
-  try { db = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { /* new file */ }
+  let db = { accounts: {}, sessions: {}, chars: {}, nextChar: 1 };
+  try { db = Object.assign(db, JSON.parse(fs.readFileSync(file, 'utf8'))); } catch (e) { /* new file */ }
   let timer = null;
   const flush = () => { clearTimeout(timer); timer = setTimeout(() => fs.writeFile(file, JSON.stringify(db), () => {}), 200); };
   return {
@@ -31,6 +31,14 @@ function jsonBackend(file) {
     async saveProgress(key, cls, kills) { const a = db.accounts[key]; if (a) { a.cls = cls; a.kills = kills; flush(); } },
     async putSession(tokenHash, key, expires) { db.sessions[tokenHash] = { key, expires }; flush(); },
     async getSession(tokenHash) { const s = db.sessions[tokenHash]; return s && s.expires > Date.now() ? s.key : null; },
+    async listChars(key) { return Object.values(db.chars).filter((c) => c.account === key).sort((a, b) => a.id - b.id); },
+    async charNameTaken(nameKey) { return Object.values(db.chars).some((c) => c.nameKey === nameKey); },
+    async createChar(key, name, cls) {
+      const c = { id: db.nextChar++, account: key, name, nameKey: name.toLowerCase(), cls, level: 1, xp: 0, kills: 0, talents: {}, bounties: {} };
+      db.chars[c.id] = c; flush(); return c;
+    },
+    async deleteChar(key, id) { const c = db.chars[id]; if (c && c.account === key) { delete db.chars[id]; flush(); return true; } return false; },
+    async saveChar(id, d) { const c = db.chars[id]; if (c) { Object.assign(c, d); flush(); } },
   };
 }
 
@@ -46,6 +54,11 @@ function pgBackend(url) {
         cls text not null default 'necromancer', kills integer not null default 0, created_at timestamptz not null default now())`);
       await q(`create table if not exists sessions (token_hash text primary key, key text not null references accounts(key) on delete cascade, expires_at timestamptz not null)`);
       await q('delete from sessions where expires_at < now()');
+      await q(`create table if not exists characters (
+        id serial primary key, account text not null references accounts(key) on delete cascade,
+        name text not null, name_key text not null unique, cls text not null,
+        level integer not null default 1, xp integer not null default 0, kills integer not null default 0,
+        talents text not null default '{}', bounties text not null default '{}', created_at timestamptz not null default now())`);
     },
     async getAccount(key) {
       const r = await q('select key, name, salt, hash, cls, kills from accounts where key = $1', [key]);
@@ -61,8 +74,24 @@ function pgBackend(url) {
       const r = await q('select key from sessions where token_hash = $1 and expires_at > now()', [tokenHash]);
       return r.rows[0] ? r.rows[0].key : null;
     },
+    async listChars(key) {
+      const r = await q('select id, name, cls, level, xp, kills, talents, bounties from characters where account = $1 order by id', [key]);
+      return r.rows.map((c) => ({ ...c, talents: parse(c.talents), bounties: parse(c.bounties) }));
+    },
+    async charNameTaken(nameKey) { return (await q('select 1 from characters where name_key = $1', [nameKey])).rowCount > 0; },
+    async createChar(key, name, cls) {
+      const r = await q('insert into characters (account, name, name_key, cls) values ($1,$2,$3,$4) on conflict do nothing returning id, name, cls, level, xp, kills',
+        [key, name, name.toLowerCase(), cls]);
+      return r.rows[0] ? { ...r.rows[0], talents: {}, bounties: {} } : null;
+    },
+    async deleteChar(key, id) { return (await q('delete from characters where id = $1 and account = $2', [id, key])).rowCount > 0; },
+    async saveChar(id, d) {
+      await q('update characters set level = $2, xp = $3, kills = $4, talents = $5, bounties = $6 where id = $1',
+        [id, d.level, d.xp, d.kills, JSON.stringify(d.talents || {}), JSON.stringify(d.bounties || {})]);
+    },
   };
 }
+const parse = (s) => { try { return JSON.parse(s); } catch (e) { return {}; } };
 
 // Phone keyboards and copy-paste often add spaces, quotes or typographic dashes to a pasted URL. None of those can
 // appear in a valid connection string, so undo them, then log the host (never the password) to make problems visible.
@@ -108,7 +137,11 @@ function createStore() {
       const key = await b.getSession(sha(token));
       return key ? b.getAccount(key) : null;
     },
-    save: (key, cls, kills) => b.saveProgress(key, cls, kills),
+    listChars: (key) => b.listChars(key),
+    charNameTaken: (name) => b.charNameTaken(name.toLowerCase()),
+    createChar: (key, name, cls) => b.createChar(key, name, cls),
+    deleteChar: (key, id) => b.deleteChar(key, id),
+    saveChar: (id, d) => b.saveChar(id, d),
   };
 }
 

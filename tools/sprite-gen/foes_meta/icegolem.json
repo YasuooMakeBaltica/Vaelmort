@@ -1,0 +1,1 @@
+{"frameW":176,"frameH":184,"ax":88,"ay":158,"anims":{"idle":{"frames":6,"fps":5,"file":"icegolem_idle.png"},"run":{"frames":8,"fps":9,"file":"icegolem_run.png"},"attack":{"frames":8,"fps":10,"file":"icegolem_attack.png","hit":5}}}

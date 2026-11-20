@@ -1,0 +1,1 @@
+{"frameW":96,"frameH":96,"ax":48,"ay":83,"anims":{"idle":{"frames":6,"fps":6,"file":"skelminion_idle.png"},"run":{"frames":8,"fps":11,"file":"skelminion_run.png"},"attack":{"frames":8,"fps":12,"file":"skelminion_attack.png","hit":4}}}

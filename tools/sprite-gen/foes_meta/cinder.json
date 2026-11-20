@@ -1,0 +1,1 @@
+{"frameW":104,"frameH":112,"ax":52,"ay":96,"anims":{"idle":{"frames":6,"fps":6,"file":"cinder_idle.png"},"run":{"frames":8,"fps":10,"file":"cinder_run.png"},"attack":{"frames":8,"fps":12,"file":"cinder_attack.png","hit":4}}}

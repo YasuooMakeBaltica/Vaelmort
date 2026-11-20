@@ -1,7 +1,7 @@
 // Vaelmort world: isometric projection, procedural zone map, chunked ground painting and prop pixel art.
 (function (V) {
   'use strict';
-  const N = 64, C = N / 2, HW = 48, HH = 24; // 96x48 floor diamonds
+  const N = 112, C = N / 2, HW = 48, HH = 24; // 96x48 floor diamonds
   Object.assign(V, { N, C, HW, HH });
 
   // Tile coords (tx, ty) <-> world pixels on the ground plane (2:1 isometric).
@@ -32,21 +32,18 @@
   Object.assign(V, { hash, vnoise, fbm, rng });
 
   // ---------- map ----------
-  const T = V.T = { GRASS: 0, MOSS: 1, DIRT: 2, PLAZA: 3, ROAD: 4, WATER: 5, GRAVE: 6, ASH: 7, EMBER: 8 };
-  V.ZONES = [
-    { name: 'Vaelmort Gate', sub: 'The last lit stones', dark: 0.42 },
-    { name: 'Mourning Wood', sub: 'Hollows walk between the pines', dark: 0.6 },
-    { name: 'Drowned Graves', sub: 'Wisps drift over black water', dark: 0.58 },
-    { name: 'Ember Ruins', sub: 'The Warden keeps the old flame', dark: 0.52 },
-    { name: 'Bleak Moor', sub: 'Wind, stone and little else', dark: 0.46 },
-  ];
-
+  const T = V.T = { GRASS: 0, MOSS: 1, DIRT: 2, PLAZA: 3, ROAD: 4, WATER: 5, GRAVE: 6, ASH: 7, EMBER: 8, SNOW: 9, ICE: 10, VOID: 11, ABYSS: 12 };
+  // Rings around the town: an inner ring of four zones (levels 1-17) and an outer ring of two (17-30).
+  V.INNER = 40; // tile radius where the outer ring starts
   function zoneAt(tx, ty, seed) {
-    const dx = tx - C, dy = ty - C;
-    if (Math.hypot(dx, dy) < 7.2) return 0;
+    const dx = tx - C, dy = ty - C, r = Math.hypot(dx, dy);
+    if (r < 9) return 0;
     const a = Math.atan2(dx + dy, dx - dy) + (fbm(tx * 0.13, ty * 0.13, seed + 7) - 0.5) * 1.1;
-    const s = Math.round(a / (Math.PI / 2));
-    return s === 0 ? 2 : s === 1 ? 4 : s === -1 ? 1 : 3; // east graves, south moor, north wood, west ruins
+    if (r < V.INNER + (fbm(tx * 0.09, ty * 0.09, seed + 11) - 0.5) * 6) {
+      const s = Math.round(a / (Math.PI / 2));
+      return s === 0 ? 2 : s === 1 ? 4 : s === -1 ? 1 : 3; // east graves, south moor, north wood, west ruins
+    }
+    return (a > -2.36 && a < 0.79) ? 5 : 6; // north + east: Frostmire, south + west: Sundered Reach
   }
 
   // r = ground collision radius in px; light = [color, radius, intensity]
@@ -54,6 +51,8 @@
     pine: { r: 22 }, deadtree: { r: 15 }, rock: { r: 18 }, stone: { r: 18 }, grave: { r: 12 }, pillar: { r: 19 },
     brazier: { r: 14, light: ['#ff9a3c', 150, 1] }, obelisk: { r: 40, light: ['#3ccf97', 200, 1] },
     bush: { r: 0 }, mushroom: { r: 0, light: ['#5fd3e8', 46, 0.55] }, candle: { r: 0, light: ['#ffd99a', 58, 0.7] },
+    snowpine: { r: 22 }, crystal: { r: 14, light: ['#8fe0ff', 70, 0.7] }, voidspire: { r: 16, light: ['#b46cff', 90, 0.8] },
+    lamp: { r: 6, light: ['#ffcf7a', 110, 0.9] }, tent: { r: 26 }, well: { r: 22 }, board: { r: 14 },
   };
 
   V.generate = function (seed) {
@@ -63,7 +62,7 @@
       const cx = i + 0.5, cy = j + 0.5, dx = cx - C, dy = cy - C, sx = dx - dy, sy = dx + dy, r = Math.hypot(dx, dy);
       const z = zoneAt(cx, cy, seed), n = fbm(cx * 0.11, cy * 0.11, seed), k = j * N + i;
       zones[k] = z;
-      const plaza = r < 5.6 + n * 1.6;
+      const plaza = r < 7.2 + n * 1.6;
       const road = Math.abs(sx + Math.sin(sy * 0.33) * 1.4) < 1.15 || Math.abs(sy + Math.sin(sx * 0.29) * 1.4) < 1.15;
       let t;
       if (plaza) t = T.PLAZA;
@@ -72,9 +71,11 @@
       else if (z === 2) t = (r > 11 && fbm(cx * 0.085, cy * 0.085, seed + 3) > 0.57) ? T.WATER : n > 0.62 ? T.DIRT : T.GRAVE;
       else if (z === 3) t = fbm(cx * 0.19, cy * 0.19, seed + 5) > 0.6 ? T.EMBER : n > 0.66 ? T.DIRT : T.ASH;
       else if (z === 4) t = (r > 12 && fbm(cx * 0.12, cy * 0.12, seed + 9) > 0.67) ? T.WATER : n < 0.38 ? T.DIRT : T.GRASS;
+      else if (z === 5) t = fbm(cx * 0.1, cy * 0.1, seed + 13) > 0.6 ? T.ICE : n < 0.3 ? T.DIRT : T.SNOW;
+      else if (z === 6) t = (r > 36 && fbm(cx * 0.1, cy * 0.1, seed + 17) > 0.64) ? T.ABYSS : n > 0.64 ? T.ASH : T.VOID;
       else t = T.GRASS;
       tiles[k] = t;
-      if (t === T.WATER) solid[k] = 1;
+      if (t === T.WATER || t === T.ABYSS) solid[k] = 1;
     }
 
     const props = [];
@@ -84,15 +85,22 @@
     };
     add('obelisk', C, C, 0);
     for (const [a, b] of [[5, 0], [0, 5], [-5, 0], [0, -5]]) add('brazier', C + a, C + b, 0);
+    // the town: lamps along the roads, tents, a well and the bounty board
+    for (const d of [9, 14, 19]) for (const sgn of [1, -1]) {
+      add('lamp', C + sgn * d / 2 + 0.9, C + sgn * d / 2 - 0.9, 0); // beside the north-south road
+      add('lamp', C + sgn * d / 2 + 0.9, C - sgn * d / 2 + 0.9, 0); // beside the east-west road
+    }
+    add('tent', C - 4.2, C - 1.4, 0); add('tent', C - 1.4, C - 4.2, 1); add('tent', C + 5.6, C + 2.2, 2);
+    add('well', C + 3.6, C + 1, 0); add('board', C + 1.2, C + 4, 0);
 
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
       const k = j * N + i, t = tiles[k], z = zones[k];
-      if (t === T.PLAZA || t === T.ROAD || t === T.WATER) continue;
+      if (t === T.PLAZA || t === T.ROAD || t === T.WATER || t === T.ABYSS) continue;
       const r = Math.hypot(i + 0.5 - C, j + 0.5 - C);
-      if (r < 8) continue;
+      if (r < 10) continue;
       const p = R(), x = i + 0.2 + R() * 0.6, y = j + 0.2 + R() * 0.6;
       const rim = i < 2 || j < 2 || i > N - 3 || j > N - 3;
-      if (rim && p < 0.45) { add(z === 3 ? 'pillar' : z === 2 ? 'deadtree' : 'pine', x, y); continue; }
+      if (rim && p < 0.45) { add(z === 6 ? 'voidspire' : z === 5 ? 'snowpine' : 'pine', x, y); continue; }
       if (z === 1) {
         if (p < 0.15) add('pine', x, y); else if (p < 0.2) add('deadtree', x, y);
         else if (p < 0.24) add('mushroom', x, y); else if (p < 0.31) add('bush', x, y); else if (p < 0.33) add('rock', x, y);
@@ -107,6 +115,12 @@
       } else if (z === 4) {
         if (p < 0.045) add('rock', x, y); else if (p < 0.08) add('bush', x, y);
         else if (p < 0.1) add('pine', x, y); else if (p < 0.112) add('stone', x, y);
+      } else if (z === 5) {
+        if (p < 0.12) add('snowpine', x, y); else if (p < 0.15) add('crystal', x, y);
+        else if (p < 0.18) add('rock', x, y); else if (p < 0.2) add('deadtree', x, y);
+      } else if (z === 6) {
+        if (p < 0.04) add('voidspire', x, y); else if (p < 0.075) add('deadtree', x, y);
+        else if (p < 0.1) add('pillar', x, y); else if (p < 0.12) add('rock', x, y);
       }
     }
 
@@ -118,18 +132,20 @@
       (grid[k] || (grid[k] = [])).push(p);
     }
 
-    const free = (i, j) => {
-      if (i < 1 || j < 1 || i > N - 2 || j > N - 2) return false;
+    // strict: no props in the 3x3 around the tile; relaxed: only the tile itself must be clear
+    const free = (i, j, strict) => {
+      if (i < 2 || j < 2 || i > N - 3 || j > N - 3) return false;
       if (solid[j * N + i]) return false;
-      for (let b = j - 1; b <= j + 1; b++) for (let a = i - 1; a <= i + 1; a++) if (grid[b * N + a]) return false;
+      if (!strict) return !grid[j * N + i];
+      for (let b = j - 1; b <= j + 1; b++) for (let a = i - 1; a <= i + 1; a++) if (grid[b * N + a] || solid[b * N + a]) return false;
       return true;
     };
     function spawnPoints(zone, count, minR, maxR) {
       const out = [];
-      for (let tries = 0; tries < 4000 && out.length < count; tries++) {
+      for (const strict of [true, false]) for (let tries = 0; tries < 6000 && out.length < count; tries++) {
         const i = (R() * N) | 0, j = (R() * N) | 0, r = Math.hypot(i + 0.5 - C, j + 0.5 - C);
-        if (zones[j * N + i] !== zone || r < minR || r > (maxR || 99) || !free(i, j)) continue;
-        if (out.some((o) => Math.hypot(o[0] - i, o[1] - j) < 3)) continue;
+        if (zones[j * N + i] !== zone || r < minR || r > (maxR || 999) || !free(i, j, strict)) continue;
+        if (out.some((o) => Math.hypot(o[0] - i - 0.5, o[1] - j - 0.5) < (strict ? 3 : 2))) continue;
         out.push([i + 0.5, j + 0.5]);
       }
       return out;
@@ -160,12 +176,17 @@
     [T.ASH]: ['#2a2425', '#312a2a', '#393131', '#423838'],
   };
   PAL[T.EMBER] = PAL[T.ASH];
+  PAL[T.SNOW] = ['#7d8a99', '#8b98a7', '#99a6b4', '#a9b5c2'];
+  PAL[T.ICE] = ['#4e6f86', '#5a7d95', '#6789a1', '#7798b0'];
+  PAL[T.VOID] = ['#15111c', '#1a1523', '#201a2b', '#272034'];
+  PAL[T.ABYSS] = ['#030206', '#050309', '#07050c', '#0a0710'];
   const X = {};
   for (const k in PAL) X[k] = PAL[k].map(u32);
   const MORTAR_P = u32('#25242b'), MORTAR_R = u32('#221f1b'), BLADE = u32('#4c6137'), BLADE2 = u32('#5a703f'), FLOWER = u32('#8d88a6'),
     MOSS_HI = u32('#33482e'), NEEDLE = u32('#45362a'), PEBBLE = u32('#5b4936'), SPECK = u32('#3e3747'),
     CRACK_HI = u32('#ff8a3a'), CRACK = u32('#c2461d'), CRACK_LO = u32('#5c2219'), SHORE = u32('#27434d'), SHORE2 = u32('#1b3440'),
-    CLIFF = ['#121016', '#18151d', '#1f1b25', '#28232f', '#322c3a'].map(u32), LIP = u32('#47424f');
+    CLIFF = ['#121016', '#18151d', '#1f1b25', '#28232f', '#322c3a'].map(u32), LIP = u32('#47424f'),
+    SPARKLE = u32('#e4eef8'), ICE_LINE = u32('#a9cfe4'), VOID_HI = u32('#d29bff'), VOID_MID = u32('#8a4fd0'), VOID_LO = u32('#3b2160'), ABYSS_RIM = u32('#4a2a78');
   const CH = 512;
 
   V.makeGround = function (map) {
@@ -235,6 +256,17 @@
             col = pal[Math.max(0, Math.min(3, (m * 3.2 + h * 0.4) | 0))];
             const e = 0.1;
             if (typeAt(tx + e, ty + e) !== T.WATER || typeAt(tx - e, ty - e) !== T.WATER || typeAt(tx + e, ty - e) !== T.WATER || typeAt(tx - e, ty + e) !== T.WATER) col = h > 0.5 ? SHORE : SHORE2;
+          } else if (t === T.SNOW) {
+            if (hash(px, py, 8) > 0.993) col = SPARKLE;
+          } else if (t === T.ICE) {
+            const c = Math.abs(vnoise(tx * 2.2, ty * 2.2, 19) - 0.5);
+            if (c < 0.012) col = ICE_LINE; else if (hash(px, py, 8) > 0.996) col = SPARKLE;
+          } else if (t === T.VOID) {
+            const c = Math.abs(vnoise(tx * 1.4, ty * 1.4, 23) - 0.5);
+            if (c < 0.014) col = VOID_HI; else if (c < 0.03) col = VOID_MID; else if (c < 0.05) col = VOID_LO;
+          } else if (t === T.ABYSS) {
+            const e = 0.12;
+            if (typeAt(tx + e, ty + e) !== T.ABYSS || typeAt(tx - e, ty - e) !== T.ABYSS || typeAt(tx + e, ty - e) !== T.ABYSS || typeAt(tx - e, ty + e) !== T.ABYSS) col = h > 0.5 ? ABYSS_RIM : VOID_LO;
           } else if (t === T.EMBER) {
             const c = Math.abs(vnoise(tx * 1.6, ty * 1.6, 13) - 0.5);
             if (c < 0.016) col = CRACK_HI; else if (c < 0.034) col = CRACK; else if (c < 0.058) col = CRACK_LO;
@@ -342,8 +374,8 @@
   const BONE = ramp('#5f5a4b', '#8f8976', '#c4bda7', '#ece5cf');
 
   const builders = {
-    pine(v) {
-      const k = 1.9, R = rng(100 + v), p = new Pix(36 * k, 64 * k), cx = 18;
+    pine(v, snow) {
+      const k = 1.9, R = rng(100 + v), p = new Pix(36 * k, 64 * k), cx = 18, SNOWR = ramp('#8e9cab', '#b4c2cf', '#dfe8f0');
       fill(p, k, 16, 49, 20, 59, (x, y) => 0.8 - (x - 16) / 4.5 - (y > 55 ? 0.2 : 0), BARK);
       const halves = [0, 1, 2, 3].map((t) => 5 + t * 3.5 + R() * 1.4);
       for (let t = 3; t >= 0; t--) {
@@ -355,6 +387,7 @@
           const rag = tt > 0.75 ? (hash(px >> 1, t, v + 3) - 0.5) * 0.5 + (hash(px, py, v + 4) - 0.5) * 0.2 : 0;
           if (Math.abs(nx) > 1 + rag) return null;
           if (tt > 0.9 && hash(px >> 1, t + 9, v) > 0.6) return null;
+          if (snow && tt < 0.32 + (hash(px >> 1, t, v + 11) - 0.5) * 0.25) return pick(SNOWR, 0.85 - nx * 0.35, px, py);
           return 0.58 - nx * 0.4 - tt * 0.3 + (3 - t) * 0.04 + (hash(px, py, v) - 0.5) * 0.22 + (hash(px >> 1, py >> 1, v + 7) > 0.92 ? 0.15 : 0);
         }, PINE);
       }
@@ -493,68 +526,76 @@
       fill(p, k, 9.5, 7.5, 15, 9, (x) => (x < 10.6 || x > 13.5) ? eye : null);
       return { c: p.outline(OUT).canvas(), ax: 12 * k, ay: 37 * k };
     },
+    snowpine(v) { return builders.pine(v + 5, true); },
+    crystal(v) { return crystals(v, ramp('#1f3a52', '#3f6f96', '#7fc0e6', '#d8f4ff'), 1); },
+    voidspire(v) { return crystals(v + 3, ramp('#1a0d2c', '#3a1d62', '#8a4fd0', '#e6c4ff'), 1.7); },
+    lamp() {
+      const k = 1.5, p = new Pix(14 * k, 42 * k), iron = ramp('#14121a', '#24202c', '#3a3446'), glass = ramp('#c9802e', '#ffcf7a', '#fff2c4');
+      fill(p, k, 4, 36, 10, 39, (x) => 0.7 - (x - 4) / 8, iron);
+      fill(p, k, 6.3, 8, 7.7, 37, (x) => x < 7 ? 1 : 0.3, iron);
+      fill(p, k, 3.5, 2, 10.5, 9.5, (x, y) => {
+        if (y < 3.2 || y > 8.6 || x < 4.2 || x > 9.8) return 0.4;
+        return 0.55 + (1 - Math.abs(x - 7) / 3) * 0.45 - Math.abs(y - 6) / 10;
+      }, glass);
+      fill(p, k, 3.5, 1, 10.5, 2.4, () => 0.9, iron);
+      return { c: p.outline(OUT).canvas(), ax: 7 * k, ay: 38.5 * k, glow: [7 * k, 6 * k] };
+    },
+    tent(v) {
+      const k = 1.6, p = new Pix(40 * k, 30 * k);
+      const cloth = [ramp('#3a1416', '#5e2024', '#86302f', '#a8483f'), ramp('#14223a', '#1f3557', '#2e4f7d', '#41679c'), ramp('#1a2a16', '#2a4022', '#3c5a30', '#557a42')][v % 3];
+      const inTri = (x, y, a, b, c) => { const s = (p1, p2, p3) => (p1[0] - p3[0]) * (p2[1] - p3[1]) - (p2[0] - p3[0]) * (p1[1] - p3[1]); const d1 = s([x, y], a, b), d2 = s([x, y], b, c), d3 = s([x, y], c, a); return !((d1 < 0 || d2 < 0 || d3 < 0) && (d1 > 0 || d2 > 0 || d3 > 0)); };
+      const A = [12, 4], B = [2, 26], Cc = [22, 26], D = [30, 9], E = [38, 28];
+      fill(p, k, 10, 3, 39, 29, (x, y, px, py) => (inTri(x, y, A, D, E) || inTri(x, y, A, E, Cc)) ? 0.35 + (hash(px >> 2, py, 3) - 0.5) * 0.08 + ((Math.floor(x * 0.7 + y * 0.3)) % 3 === 0 ? 0.08 : 0) : null, cloth);
+      fill(p, k, 1, 3, 23, 27, (x, y) => inTri(x, y, A, B, Cc) ? (inTri(x, y, [12, 12], [8, 26], [16, 26]) ? u32('#0a0708') : 0.75 - (y - 4) / 60) : null, cloth);
+      line(p, k, 12, 3, 12, 1, 0.8, ramp('#3d2b1d', '#54402c'));
+      return { c: p.outline(OUT).canvas(), ax: 20 * k, ay: 26 * k };
+    },
+    well() {
+      const k = 1.5, p = new Pix(30 * k, 34 * k), wood = ramp('#241a12', '#3d2b1d', '#54402c', '#6c5338'), water = u32('#0b1c26');
+      fill(p, k, 4, 8, 7, 25, (x) => x < 5.5 ? 1 : 0.3, wood); fill(p, k, 23, 8, 26, 25, (x) => x < 24.5 ? 1 : 0.3, wood);
+      fill(p, k, 3, 19, 27, 30, (x, y, px, py) => {
+        const nx = (x - 15) / 11, top = 23 - Math.sqrt(Math.max(0, 1 - nx * nx)) * 4.5, bot = 26 + Math.sqrt(Math.max(0, 1 - nx * nx)) * 3;
+        if (Math.abs(nx) > 1 || y < top || y > bot) return null;
+        const inner = ((x - 15) / 8) ** 2 + ((y - 23) / 3) ** 2 < 1;
+        if (inner) return water;
+        return 0.62 - nx * 0.3 - (y > 24 ? 0.2 : 0) + (Math.floor(x / 2.5 + (y > 25 ? 1 : 0)) % 2 ? 0.08 : -0.04);
+      }, STONE);
+      fill(p, k, 1, 1, 29, 10, (x, y) => { const w = (y - 1) * 1.6; return Math.abs(x - 15) < w && y < 9.5 ? 0.6 - (x - 15) / 30 - (y < 3 ? -0.2 : 0) : null; }, wood);
+      return { c: p.outline(OUT).canvas(), ax: 15 * k, ay: 28 * k };
+    },
+    board() {
+      const k = 1.5, p = new Pix(26 * k, 36 * k), wood = ramp('#241a12', '#3d2b1d', '#54402c', '#6c5338'), paper = ramp('#8f8676', '#c8bfa8', '#e8e0cc'), ink = u32('#2a2018'), seal = u32('#8a2b22');
+      fill(p, k, 4, 18, 6, 34, (x) => x < 5 ? 1 : 0.4, wood); fill(p, k, 20, 18, 22, 34, (x) => x < 21 ? 1 : 0.4, wood);
+      fill(p, k, 1, 4, 25, 21, (x, y) => (y < 5 || y > 20 || x < 2 || x > 24) ? 0.25 : 0.55 + (Math.floor(y / 3) % 2 ? 0.08 : 0), wood);
+      for (const [x0, y0, w, h] of [[4, 7, 6, 8], [12, 6, 6, 6], [13, 13.5, 8, 5]]) {
+        fill(p, k, x0, y0, x0 + w, y0 + h, (x, y) => (Math.floor((y - y0) * 1.4) % 2 === 1 && x > x0 + 1 && x < x0 + w - 1) ? ink : 0.6 + (x - x0) / (w * 4), paper);
+        p.set((x0 + w / 2) * k, (y0 + 0.6) * k, seal);
+      }
+      return { c: p.outline(OUT).canvas(), ax: 13 * k, ay: 34 * k };
+    },
   };
 
-  // Hollow (undead stalker) frames: 0-1 walk, 2 wind-up, 3 strike. Faces right; flip for left.
-  function hollow(frame, pal, k) {
-    const p = new Pix(30 * k, 34 * k), cx = 13, bob = frame === 1 ? 1 : 0;
-    const cloak = ramp(...pal.cloak), skin = ramp(...pal.skin), hole = u32('#030206'), eye = u32(pal.eye), eye2 = u32(pal.eye2), bone = u32('#d8cfb8');
-    fill(p, k, 0, 12, 28, 31, (x, y, px, py) => {
-      const t = (y - 12) / 18, hw = 4 + t * 6.5, nx = (x - cx) / hw;
-      if (Math.abs(nx) > 1) return null;
-      if (y > 27.5 && hash(px >> 1, py + frame * 7, 5) > 0.55) return null;
-      return 0.6 - nx * 0.4 - t * 0.2 + (hash(px, py, 6) - 0.5) * 0.15;
-    }, cloak);
-    const lean = frame === 3 ? 2 : frame === 2 ? -1 : 0;
-    blob(p, k, cx + lean, 9 + bob, 5.6, 5.6, cloak, 0.15, 2);
-    if (pal.horns) { const hr = ramp('#7d705c', '#c9b89a'); line(p, k, cx - 4 + lean, 6, cx - 7 + lean, 0, 1, hr); line(p, k, cx + 4 + lean, 6, cx + 7 + lean, 0, 1, hr); }
-    fill(p, k, cx - 4, 7, cx + 6, 14, (x, y) => {
-      const ex = (x - cx - lean - 1.2) / 3, ey = (y - 10.5 - bob) / 2.6;
-      if (ex * ex + ey * ey >= 1) return null;
-      const e1 = Math.hypot(x - (cx + lean + 0.5), y - (10.5 + bob)), e2 = Math.hypot(x - (cx + 3.5 + lean), y - (10.5 + bob));
-      if (Math.min(e1, e2) < 0.7) return eye;
-      if (frame >= 2 && Math.min(e1, e2) < 1.2) return eye2;
-      return hole;
-    });
-    const arms = frame === 2 ? [[-5, 14, -8, 4], [5, 14, 8, 4]]
-      : frame === 3 ? [[-4, 15, 9, 19], [5, 15, 12, 22]]
-        : [[-5, 14, -7 - bob, 24], [5, 14, 7 + bob, 24]];
-    for (const [x0, y0, x1, y1] of arms) {
-      line(p, k, cx + x0, y0 + bob, cx + x1, y1 + bob, 1.6, skin);
-      const ex = cx + x1, ey = y1 + bob;
-      for (const [a, b] of [[-1, 1], [1, 1], [0, 2]]) p.set((ex + a * 0.8) * k, (ey + b * 0.8) * k, bone);
+  // clusters of crystal shards; tall stretches them into spires
+  function crystals(v, rmp, tall) {
+    const k = 1.6, R = rng(400 + v), p = new Pix(26 * k, 44 * k);
+    const shards = [[13, 40, 13 + (R() - 0.5) * 3, 40 - 28 * tall * 0.75, 3.4]];
+    for (let i = 0; i < 3; i++) { const bx = 13 + (R() - 0.5) * 12, h = (10 + R() * 10) * tall * 0.75; shards.push([bx, 41, bx + (bx - 13) * 0.5, 41 - h, 1.8 + R() * 1.2]); }
+    for (const [x0, y0, x1, y1, w] of shards.sort((a, b) => a[4] - b[4])) {
+      fill(p, k, Math.min(x0, x1) - w - 1, Math.min(y0, y1) - 1, Math.max(x0, x1) + w + 1, y0 + 1, (x, y) => {
+        const dx = x1 - x0, dy = y1 - y0, L2 = dx * dx + dy * dy, t = Math.max(0, Math.min(1, ((x - x0) * dx + (y - y0) * dy) / L2));
+        const cxp = x0 + dx * t, cyp = y0 + dy * t, d = Math.hypot(x - cxp, y - cyp), ww = w * (1 - t * 0.85);
+        if (d > ww) return null;
+        const side = (x - cxp) * (-dy) + (y - cyp) * dx;
+        return (side < 0 ? 0.75 : 0.35) + (d > ww - 0.6 ? 0.25 : 0) + t * 0.15;
+      }, rmp);
     }
-    return p.outline(OUT).canvas();
+    return { c: p.outline(OUT).canvas(), ax: 13 * k, ay: 41 * k };
   }
 
-  // Skeleton minion frames: 0-1 walk, 2 attack. Faces right.
-  function skeleton(frame) {
-    const k = 1.4, p = new Pix(24 * k, 32 * k), cx = 11, s = frame === 1 ? 1 : 0, hole = u32('#0b0a08'), eye = u32('#7dffc8');
-    line(p, k, cx - 1, 20, cx - 3 - s, 30, 1, BONE); line(p, k, cx + 1, 20, cx + 3 + s, 30, 1, BONE);
-    blob(p, k, cx, 20, 3, 1.5, BONE, 0, 1);
-    line(p, k, cx, 19, cx, 12, 1, BONE);
-    for (const [y, w] of [[13, 3.2], [15, 2.8], [17, 2.2]]) line(p, k, cx - w, y, cx + w, y + 0.3, 0.8, BONE);
-    if (frame === 2) { line(p, k, cx + 2, 12.5, cx + 10, 11, 1, BONE); line(p, k, cx - 2, 12.5, cx + 6, 15, 1, BONE); }
-    else { line(p, k, cx - 3, 12.5, cx - 5, 19 + s, 1, BONE); line(p, k, cx + 3, 12.5, cx + 5, 19 - s, 1, BONE); }
-    blob(p, k, cx + 0.5, 8 - s * 0.3, 3.8, 3.5, BONE, 0.1, 2);
-    fill(p, k, cx - 3, 7, cx + 4, 11, (x, y) => {
-      const a = Math.hypot(x - (cx - 0.8), y - 8.6), b = Math.hypot(x - (cx + 1.9), y - 8.6);
-      if (Math.min(a, b) < 0.55) return eye;
-      if (Math.min(a, b) < 1.1) return hole;
-      if (y > 10 && Math.abs(x - cx - 0.5) < 2 && Math.floor(x * 2) % 2 === 0) return hole;
-      return null;
-    });
-    return p.outline(OUT).canvas();
-  }
-
+  // Enemies and minions are 3D-rendered sprite sheets in assets/foes (tools/sprite-gen/foes.js); only props are drawn here.
   V.buildSprites = function () {
     const S = {};
     for (const k of Object.keys(builders)) S[k] = [0, 1, 2].map((v) => builders[k](v));
-    const HOLLOW = { cloak: ['#0f0d14', '#1a1622', '#252030', '#332a40'], skin: ['#3b433e', '#56615a', '#78857c'], eye: '#ff4a3a', eye2: '#ffb3a8' };
-    const WARDEN = { cloak: ['#1a0a09', '#2b1210', '#3e1914', '#55231a'], skin: ['#2a2120', '#3d302c', '#5a463e'], eye: '#ffb02e', eye2: '#fff0b8', horns: true };
-    S.hollow = { k: 1.55, frames: [0, 1, 2, 3].map((f) => hollow(f, HOLLOW, 1.55)) };
-    S.warden = { k: 2.7, frames: [0, 1, 2, 3].map((f) => hollow(f, WARDEN, 2.7)) };
-    S.skeleton = { k: 1.4, frames: [0, 1, 2].map(skeleton) };
     return S;
   };
 
@@ -562,7 +603,8 @@
   V.paintMinimap = function (map) {
     const c = document.createElement('canvas'); c.width = N * 2; c.height = N;
     const g = c.getContext('2d');
-    const col = { [T.GRASS]: '#3a4b2d', [T.MOSS]: '#22331f', [T.DIRT]: '#4a3a2b', [T.PLAZA]: '#6a6874', [T.ROAD]: '#57514a', [T.WATER]: '#173444', [T.GRAVE]: '#36303f', [T.ASH]: '#3d3434', [T.EMBER]: '#6a2c1a' };
+    const col = { [T.GRASS]: '#3a4b2d', [T.MOSS]: '#22331f', [T.DIRT]: '#4a3a2b', [T.PLAZA]: '#6a6874', [T.ROAD]: '#57514a', [T.WATER]: '#173444', [T.GRAVE]: '#36303f', [T.ASH]: '#3d3434', [T.EMBER]: '#6a2c1a',
+      [T.SNOW]: '#8a97a6', [T.ICE]: '#5f8299', [T.VOID]: '#2a2036', [T.ABYSS]: '#050308' };
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
       g.fillStyle = col[map.tiles[j * N + i]];
       g.fillRect(i - j + N - 1, Math.floor((i + j) / 2), 2, 1);

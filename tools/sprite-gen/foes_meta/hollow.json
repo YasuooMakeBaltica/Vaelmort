@@ -1,0 +1,1 @@
+{"frameW":96,"frameH":104,"ax":48,"ay":89,"anims":{"idle":{"frames":6,"fps":6,"file":"hollow_idle.png"},"run":{"frames":8,"fps":10,"file":"hollow_run.png"},"attack":{"frames":8,"fps":12,"file":"hollow_attack.png","hit":4}}}

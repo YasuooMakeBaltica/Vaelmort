@@ -1,0 +1,1 @@
+{"frameW":232,"frameH":240,"ax":116,"ay":206,"anims":{"idle":{"frames":6,"fps":5,"file":"revenant_idle.png"},"run":{"frames":8,"fps":9,"file":"revenant_run.png"},"attack":{"frames":8,"fps":10,"file":"revenant_attack.png","hit":5}}}

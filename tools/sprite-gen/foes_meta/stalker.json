@@ -1,0 +1,1 @@
+{"frameW":120,"frameH":112,"ax":60,"ay":96,"anims":{"idle":{"frames":6,"fps":6,"file":"stalker_idle.png"},"run":{"frames":8,"fps":14,"file":"stalker_run.png"},"attack":{"frames":8,"fps":12,"file":"stalker_attack.png","hit":4}}}

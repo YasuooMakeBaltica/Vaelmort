@@ -26,7 +26,7 @@ const store = createStore();
 
 // ---------- static files ----------
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.md': 'text/markdown; charset=utf-8' };
-const PUBLIC = [/^index\.html$/, /^src\/[a-z]+\.js$/, /^assets\/heroes\/heroes\.json$/, /^assets\/heroes\/sheets\/[a-z_]+\.png$/];
+const PUBLIC = [/^index\.html$/, /^src\/[a-z]+\.js$/, /^assets\/heroes\/heroes\.json$/, /^assets\/heroes\/sheets\/[a-z_]+\.png$/, /^assets\/foes\/foes\.json$/, /^assets\/foes\/[a-z_]+\.png$/];
 const indexHtml = () => fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')
   .replace(/<meta name="vaelmort-server" content="[^"]*">/, '<meta name="vaelmort-server" content="same-origin">');
 const server = http.createServer((req, res) => {
@@ -54,9 +54,9 @@ const broadcast = (m) => { const s = JSON.stringify(m); for (const [ws, c] of cl
 const clean = (s) => Array.from(String(s), (ch) => { const c = ch.codePointAt(0); return c < 32 || c === 127 || c === 0x2028 || c === 0x2029 ? ' ' : ch; }).join('').trim();
 
 async function signIn(ws, c, m) {
-  if (c.pid) return;
+  if (c.acct) return;
   if (++c.authTries > 8) { send(ws, { t: 'error', msg: 'Too many attempts. Wait a minute and try again.' }); ws.close(); return; }
-  if (clients.size > MAX_PLAYERS * 2 || sim.players.size >= MAX_PLAYERS) { send(ws, { t: 'error', msg: 'The realm is full right now. Try again soon.' }); return; }
+  if (clients.size > MAX_PLAYERS * 2) { send(ws, { t: 'error', msg: 'The realm is full right now. Try again soon.' }); return; }
   let acct = null;
   try {
     if (m.t === 'resume') {
@@ -64,14 +64,14 @@ async function signIn(ws, c, m) {
       if (!acct) { send(ws, { t: 'error', msg: 'Your saved sign-in has expired. Log in again.' }); return; }
     } else {
       const name = typeof m.name === 'string' ? m.name.trim() : '', pass = typeof m.pass === 'string' ? m.pass : '';
-      if (!NAME_RE.test(name)) { send(ws, { t: 'error', msg: 'Names are 3–16 letters, numbers or underscores.' }); return; }
+      if (!NAME_RE.test(name)) { send(ws, { t: 'error', msg: 'Account names are 3–16 letters, numbers or underscores.' }); return; }
       if (pass.length < 6 || pass.length > 128) { send(ws, { t: 'error', msg: 'Use a password of at least 6 characters.' }); return; }
       if (m.t === 'register') {
         acct = await store.register(name, pass);
-        if (!acct) { send(ws, { t: 'error', msg: 'That name is taken. Pick another, or log in if it is yours.' }); return; }
+        if (!acct) { send(ws, { t: 'error', msg: 'That account name is taken. Pick another, or log in if it is yours.' }); return; }
       } else {
         acct = await store.login(name, pass);
-        if (!acct) { send(ws, { t: 'error', msg: 'Wrong name or password.' }); return; }
+        if (!acct) { send(ws, { t: 'error', msg: 'Wrong account name or password.' }); return; }
       }
     }
   } catch (e) {
@@ -82,50 +82,93 @@ async function signIn(ws, c, m) {
   if (ws.readyState !== 1) return;
   // one session per account: the newest sign-in wins
   for (const [other, oc] of clients) if (oc.acct && oc.acct.key === acct.key && other !== ws) { send(other, { t: 'error', msg: 'You signed in somewhere else.' }); other.close(); }
+  c.acct = acct;
   const token = await store.newSession(acct.key);
-  c.acct = acct; c.pid = nextPid++;
-  const p = sim.addPlayer(c.pid, { name: acct.name, cls: acct.cls, kills: acct.kills });
-  send(ws, { t: 'welcome', id: c.pid, name: acct.name, token, x: p.x, y: p.y, seq: p.seq, cls: p.cls, kills: p.kills, foes: sim.foeList() });
-  console.log(`+ ${acct.name} (${sim.players.size} online)`);
+  send(ws, { t: 'account', name: acct.name, token });
+  await sendChars(ws, c);
 }
 
-async function saveAccount(c) {
-  const p = c.pid && sim.players.get(c.pid);
-  if (!p || !c.acct) return;
-  try { await store.save(c.acct.key, p.cls, p.kills); } catch (e) { console.error('save failed', c.acct.key, e.message); }
+const charView = (ch) => ({ id: ch.id, name: ch.name, cls: ch.cls, level: ch.level, kills: ch.kills });
+async function sendChars(ws, c) { c.chars = await store.listChars(c.acct.key); send(ws, { t: 'chars', list: c.chars.map(charView), max: V.MAX_CHARS }); }
+
+async function createChar(ws, c, m) {
+  const name = typeof m.name === 'string' ? m.name.trim() : '';
+  if (!V.NAME_RE.test(name)) { send(ws, { t: 'error', msg: 'Character names are 3–16 letters, numbers or underscores and start with a letter.' }); return; }
+  if (!V.CLASSES[m.cls]) { send(ws, { t: 'error', msg: 'Pick a class.' }); return; }
+  if ((c.chars || []).length >= V.MAX_CHARS) { send(ws, { t: 'error', msg: `You can have up to ${V.MAX_CHARS} characters. Delete one to make room.` }); return; }
+  if (await store.charNameTaken(name)) { send(ws, { t: 'error', msg: 'That character name is taken.' }); return; }
+  const ch = await store.createChar(c.acct.key, name, m.cls);
+  if (!ch) { send(ws, { t: 'error', msg: 'That character name is taken.' }); return; }
+  await sendChars(ws, c);
+  play(ws, c, ch.id);
+}
+
+async function play(ws, c, charId) {
+  if (c.pid) return;
+  const ch = (c.chars || []).find((x) => x.id === charId);
+  if (!ch) { send(ws, { t: 'error', msg: 'That character no longer exists.' }); return; }
+  if (sim.players.size >= MAX_PLAYERS) { send(ws, { t: 'error', msg: 'The realm is full right now. Try again soon.' }); return; }
+  c.char = ch; c.pid = nextPid++; c.foeCache = new Map();
+  const p = sim.addPlayer(c.pid, ch);
+  send(ws, { t: 'welcome', id: c.pid, name: p.name, cls: p.cls, level: p.level, talents: p.talents, x: p.x, y: p.y, seq: p.seq, foes: sim.foeList() });
+  console.log(`+ ${p.name} (${c.acct.name}, ${sim.players.size} online)`);
+}
+
+async function saveChar(c) {
+  const d = c.pid && sim.charData(c.pid);
+  if (!d || !c.char) return;
+  Object.assign(c.char, d);
+  try { await store.saveChar(c.char.id, d); } catch (e) { console.error('save failed', c.char.name, e.message); }
+}
+async function leaveWorld(c) {
+  if (!c.pid) return;
+  await saveChar(c);
+  sim.removePlayer(c.pid);
+  console.log(`- ${c.char.name} (${sim.players.size} online)`);
+  c.pid = 0; c.char = null;
 }
 
 wss.on('connection', (ws) => {
-  const c = { acct: null, pid: 0, chatT: 0, authTries: 0, msgs: 0, foeCache: new Map() };
+  const c = { acct: null, pid: 0, char: null, chars: null, chatT: 0, authTries: 0, msgs: 0, foeCache: new Map() };
   clients.set(ws, c);
-  ws.on('message', (raw) => {
+  ws.on('message', async (raw) => {
     if (++c.msgs > 80) return; // flood guard, reset every second
     let m; try { m = JSON.parse(raw); } catch (e) { return; }
     if (!m || typeof m !== 'object') return;
-    if (m.t === 'login' || m.t === 'register' || m.t === 'resume') { signIn(ws, c, m); return; }
-    if (!c.pid) return;
-    if (m.t === 'in') sim.input(c.pid, m);
-    else if (m.t === 'chat') {
-      const now = Date.now();
-      if (now - c.chatT < 800) return;
-      const text = clean(m.text || '').slice(0, 160);
-      if (!text) return;
-      c.chatT = now;
-      broadcast({ t: 'chat', name: c.acct.name, text });
+    try {
+      if (m.t === 'login' || m.t === 'register' || m.t === 'resume') { await signIn(ws, c, m); return; }
+      if (!c.acct) return;
+      if (!c.pid) {
+        if (m.t === 'create') await createChar(ws, c, m);
+        else if (m.t === 'delete' && Number.isInteger(m.id)) { await store.deleteChar(c.acct.key, m.id); await sendChars(ws, c); }
+        else if (m.t === 'play' && Number.isInteger(m.id)) await play(ws, c, m.id);
+        return;
+      }
+      if (m.t === 'in') sim.input(c.pid, m);
+      else if (m.t === 'learn' && typeof m.node === 'string') { if (sim.learn(c.pid, m.node)) saveChar(c); }
+      else if (m.t === 'respec') { if (sim.respec(c.pid)) saveChar(c); }
+      else if (m.t === 'leave') { await leaveWorld(c); await sendChars(ws, c); }
+      else if (m.t === 'chat') {
+        const now = Date.now();
+        if (now - c.chatT < 800) return;
+        const text = clean(m.text || '').slice(0, 160);
+        if (!text) return;
+        c.chatT = now;
+        broadcast({ t: 'chat', name: c.char.name, text });
+      }
+    } catch (e) {
+      console.error('message error', e);
+      send(ws, { t: 'error', msg: 'Something went wrong on the server. Try again.' });
     }
   });
   ws.on('close', async () => {
     clients.delete(ws);
-    if (c.pid) {
-      await saveAccount(c);
-      sim.removePlayer(c.pid);
-      console.log(`- ${c.acct.name} (${sim.players.size} online)`);
-    }
+    await leaveWorld(c);
   });
 });
 
 setInterval(() => { for (const c of clients.values()) c.msgs = 0; }, 1000);
-setInterval(() => { for (const c of clients.values()) saveAccount(c); }, 30000);
+setInterval(() => { for (const c of clients.values()) saveChar(c); }, 30000);
 // The world runs at 20 ticks a second; each player gets a view of what is near them every SEND_EVERY ticks.
 let last = Date.now(), tick = 0, pending = [];
 setInterval(() => {
@@ -149,6 +192,6 @@ store.init().then(() => {
 }).catch((e) => { console.error('Could not start the account store:', e.message); process.exit(1); });
 
 for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, async () => {
-  await Promise.all([...clients.values()].map(saveAccount));
+  await Promise.all([...clients.values()].map(saveChar));
   process.exit(0);
 });

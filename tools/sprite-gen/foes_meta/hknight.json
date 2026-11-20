@@ -1,0 +1,1 @@
+{"frameW":136,"frameH":152,"ax":68,"ay":131,"anims":{"idle":{"frames":6,"fps":6,"file":"hknight_idle.png"},"run":{"frames":8,"fps":10,"file":"hknight_run.png"},"attack":{"frames":8,"fps":12,"file":"hknight_attack.png","hit":4}}}

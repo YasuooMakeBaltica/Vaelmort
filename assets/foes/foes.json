@@ -1,0 +1,530 @@
+{
+ "archer": {
+  "frameW": 96,
+  "frameH": 104,
+  "ax": 48,
+  "ay": 89,
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "fps": 6,
+    "file": "archer_idle.png"
+   },
+   "run": {
+    "frames": 8,
+    "fps": 11,
+    "file": "archer_run.png"
+   },
+   "attack": {
+    "frames": 8,
+    "fps": 10,
+    "file": "archer_attack.png",
+    "hit": 4
+   }
+  }
+ },
+ "cinder": {
+  "frameW": 104,
+  "frameH": 112,
+  "ax": 52,
+  "ay": 96,
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "fps": 6,
+    "file": "cinder_idle.png"
+   },
+   "run": {
+    "frames": 8,
+    "fps": 10,
+    "file": "cinder_run.png"
+   },
+   "attack": {
+    "frames": 8,
+    "fps": 12,
+    "file": "cinder_attack.png",
+    "hit": 4
+   }
+  }
+ },
+ "drowned": {
+  "frameW": 104,
+  "frameH": 112,
+  "ax": 52,
+  "ay": 96,
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "fps": 6,
+    "file": "drowned_idle.png"
+   },
+   "run": {
+    "frames": 8,
+    "fps": 10,
+    "file": "drowned_run.png"
+   },
+   "attack": {
+    "frames": 8,
+    "fps": 12,
+    "file": "drowned_attack.png",
+    "hit": 4
+   }
+  }
+ },
+ "frostwolf": {
+  "frameW": 112,
+  "frameH": 104,
+  "ax": 56,
+  "ay": 89,
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "fps": 6,
+    "file": "frostwolf_idle.png"
+   },
+   "run": {
+    "frames": 8,
+    "fps": 14,
+    "file": "frostwolf_run.png"
+   },
+   "attack": {
+    "frames": 8,
+    "fps": 12,
+    "file": "frostwolf_attack.png",
+    "hit": 4
+   }
+  }
+ },
+ "golem": {
+  "frameW": 168,
+  "frameH": 176,
+  "ax": 84,
+  "ay": 151,
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "fps": 5,
+    "file": "golem_idle.png"
+   },
+   "run": {
+    "frames": 8,
+    "fps": 9,
+    "file": "golem_run.png"
+   },
+   "attack": {
+    "frames": 8,
+    "fps": 10,
+    "file": "golem_attack.png",
+    "hit": 5
+   }
+  }
+ },
+ "hknight": {
+  "frameW": 136,
+  "frameH": 152,
+  "ax": 68,
+  "ay": 131,
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "fps": 6,
+    "file": "hknight_idle.png"
+   },
+   "run": {
+    "frames": 8,
+    "fps": 10,
+    "file": "hknight_run.png"
+   },
+   "attack": {
+    "frames": 8,
+    "fps": 12,
+    "file": "hknight_attack.png",
+    "hit": 4
+   }
+  }
+ },
+ "hollow": {
+  "frameW": 96,
+  "frameH": 104,
+  "ax": 48,
+  "ay": 89,
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "fps": 6,
+    "file": "hollow_idle.png"
+   },
+   "run": {
+    "frames": 8,
+    "fps": 10,
+    "file": "hollow_run.png"
+   },
+   "attack": {
+    "frames": 8,
+    "fps": 12,
+    "file": "hollow_attack.png",
+    "hit": 4
+   }
+  }
+ },
+ "hollowking": {
+  "frameW": 232,
+  "frameH": 256,
+  "ax": 116,
+  "ay": 220,
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "fps": 6,
+    "file": "hollowking_idle.png"
+   },
+   "run": {
+    "frames": 8,
+    "fps": 10,
+    "file": "hollowking_run.png"
+   },
+   "attack": {
+    "frames": 8,
+    "fps": 12,
+    "file": "hollowking_attack.png",
+    "hit": 4
+   }
+  }
+ },
+ "icegolem": {
+  "frameW": 176,
+  "frameH": 184,
+  "ax": 88,
+  "ay": 158,
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "fps": 5,
+    "file": "icegolem_idle.png"
+   },
+   "run": {
+    "frames": 8,
+    "fps": 9,
+    "file": "icegolem_run.png"
+   },
+   "attack": {
+    "frames": 8,
+    "fps": 10,
+    "file": "icegolem_attack.png",
+    "hit": 5
+   }
+  }
+ },
+ "imp": {
+  "frameW": 104,
+  "frameH": 104,
+  "ax": 52,
+  "ay": 89,
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "fps": 10,
+    "file": "imp_idle.png"
+   },
+   "run": {
+    "frames": 6,
+    "fps": 14,
+    "file": "imp_run.png"
+   },
+   "attack": {
+    "frames": 8,
+    "fps": 12,
+    "file": "imp_attack.png",
+    "hit": 4
+   }
+  }
+ },
+ "matron": {
+  "frameW": 208,
+  "frameH": 232,
+  "ax": 104,
+  "ay": 200,
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "fps": 7,
+    "file": "matron_idle.png"
+   },
+   "run": {
+    "frames": 6,
+    "fps": 9,
+    "file": "matron_run.png"
+   },
+   "attack": {
+    "frames": 8,
+    "fps": 11,
+    "file": "matron_attack.png",
+    "hit": 4
+   }
+  }
+ },
+ "revenant": {
+  "frameW": 232,
+  "frameH": 240,
+  "ax": 116,
+  "ay": 206,
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "fps": 5,
+    "file": "revenant_idle.png"
+   },
+   "run": {
+    "frames": 8,
+    "fps": 9,
+    "file": "revenant_run.png"
+   },
+   "attack": {
+    "frames": 8,
+    "fps": 10,
+    "file": "revenant_attack.png",
+    "hit": 5
+   }
+  }
+ },
+ "skeleton": {
+  "frameW": 96,
+  "frameH": 104,
+  "ax": 48,
+  "ay": 89,
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "fps": 6,
+    "file": "skeleton_idle.png"
+   },
+   "run": {
+    "frames": 8,
+    "fps": 11,
+    "file": "skeleton_run.png"
+   },
+   "attack": {
+    "frames": 8,
+    "fps": 12,
+    "file": "skeleton_attack.png",
+    "hit": 4
+   }
+  }
+ },
+ "skelminion": {
+  "frameW": 96,
+  "frameH": 96,
+  "ax": 48,
+  "ay": 83,
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "fps": 6,
+    "file": "skelminion_idle.png"
+   },
+   "run": {
+    "frames": 8,
+    "fps": 11,
+    "file": "skelminion_run.png"
+   },
+   "attack": {
+    "frames": 8,
+    "fps": 12,
+    "file": "skelminion_attack.png",
+    "hit": 4
+   }
+  }
+ },
+ "spiritwolf": {
+  "frameW": 96,
+  "frameH": 88,
+  "ax": 48,
+  "ay": 76,
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "fps": 6,
+    "file": "spiritwolf_idle.png"
+   },
+   "run": {
+    "frames": 8,
+    "fps": 14,
+    "file": "spiritwolf_run.png"
+   },
+   "attack": {
+    "frames": 8,
+    "fps": 12,
+    "file": "spiritwolf_attack.png",
+    "hit": 4
+   }
+  }
+ },
+ "stalker": {
+  "frameW": 120,
+  "frameH": 112,
+  "ax": 60,
+  "ay": 96,
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "fps": 6,
+    "file": "stalker_idle.png"
+   },
+   "run": {
+    "frames": 8,
+    "fps": 14,
+    "file": "stalker_run.png"
+   },
+   "attack": {
+    "frames": 8,
+    "fps": 12,
+    "file": "stalker_attack.png",
+    "hit": 4
+   }
+  }
+ },
+ "thornback": {
+  "frameW": 208,
+  "frameH": 192,
+  "ax": 104,
+  "ay": 165,
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "fps": 6,
+    "file": "thornback_idle.png"
+   },
+   "run": {
+    "frames": 8,
+    "fps": 14,
+    "file": "thornback_run.png"
+   },
+   "attack": {
+    "frames": 8,
+    "fps": 12,
+    "file": "thornback_attack.png",
+    "hit": 4
+   }
+  }
+ },
+ "voidwisp": {
+  "frameW": 96,
+  "frameH": 104,
+  "ax": 48,
+  "ay": 89,
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "fps": 8,
+    "file": "voidwisp_idle.png"
+   },
+   "run": {
+    "frames": 6,
+    "fps": 10,
+    "file": "voidwisp_run.png"
+   },
+   "attack": {
+    "frames": 8,
+    "fps": 12,
+    "file": "voidwisp_attack.png",
+    "hit": 4
+   }
+  }
+ },
+ "warden": {
+  "frameW": 208,
+  "frameH": 232,
+  "ax": 104,
+  "ay": 200,
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "fps": 6,
+    "file": "warden_idle.png"
+   },
+   "run": {
+    "frames": 8,
+    "fps": 10,
+    "file": "warden_run.png"
+   },
+   "attack": {
+    "frames": 8,
+    "fps": 12,
+    "file": "warden_attack.png",
+    "hit": 4
+   }
+  }
+ },
+ "wisp": {
+  "frameW": 88,
+  "frameH": 96,
+  "ax": 44,
+  "ay": 83,
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "fps": 8,
+    "file": "wisp_idle.png"
+   },
+   "run": {
+    "frames": 6,
+    "fps": 10,
+    "file": "wisp_run.png"
+   },
+   "attack": {
+    "frames": 8,
+    "fps": 12,
+    "file": "wisp_attack.png",
+    "hit": 4
+   }
+  }
+ },
+ "wolf": {
+  "frameW": 104,
+  "frameH": 96,
+  "ax": 52,
+  "ay": 83,
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "fps": 6,
+    "file": "wolf_idle.png"
+   },
+   "run": {
+    "frames": 8,
+    "fps": 14,
+    "file": "wolf_run.png"
+   },
+   "attack": {
+    "frames": 8,
+    "fps": 12,
+    "file": "wolf_attack.png",
+    "hit": 4
+   }
+  }
+ },
+ "wraith": {
+  "frameW": 104,
+  "frameH": 112,
+  "ax": 52,
+  "ay": 96,
+  "anims": {
+   "idle": {
+    "frames": 6,
+    "fps": 7,
+    "file": "wraith_idle.png"
+   },
+   "run": {
+    "frames": 6,
+    "fps": 9,
+    "file": "wraith_run.png"
+   },
+   "attack": {
+    "frames": 8,
+    "fps": 11,
+    "file": "wraith_attack.png",
+    "hit": 4
+   }
+  }
+ }
+}

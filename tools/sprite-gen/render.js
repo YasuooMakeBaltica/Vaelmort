@@ -96,6 +96,8 @@
   const hexRGB = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
   const RGB = {}; for (const k in H.RAMPS) RGB[k] = H.RAMPS[k].map(hexRGB);
   const OUT_RGB = hexRGB(H.OUTLINE);
+  // register an extra ramp after load (used by the enemy models)
+  H.addRamp = (name, colors, emissive) => { H.RAMPS[name] = colors; RGB[name] = colors.map(hexRGB); if (emissive) H.EMISSIVE.add(name); };
 
   // ---------- camera ----------
   // Isometric: azimuth 45deg to the world grid, elevation 30deg. Character yaw is relative to the camera.

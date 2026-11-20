@@ -1,0 +1,1 @@
+{"frameW":88,"frameH":96,"ax":44,"ay":83,"anims":{"idle":{"frames":6,"fps":8,"file":"wisp_idle.png"},"run":{"frames":6,"fps":10,"file":"wisp_run.png"},"attack":{"frames":8,"fps":12,"file":"wisp_attack.png","hit":4}}}
