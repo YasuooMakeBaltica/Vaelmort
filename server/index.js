@@ -174,6 +174,17 @@ async function adminOp(ws, c, m) {
       const n = sim.spawnFoes(m.type, Math.max(1, Math.min(20, m.n | 0 || 1)), at.x, at.y, Math.max(1, Math.min(V.MAX_LEVEL + 5, m.level | 0 || at.level)));
       return say(n ? `Spawned ${n} ${V.FOES[m.type].name}.` : 'Too many spawned enemies already.');
     }
+    case 'give': {
+      const pid = Number.isInteger(m.pid) ? m.pid : c.pid, tc2 = clientByPid(pid)[1];
+      if (!pid || !tc2) return say(c.pid ? 'That player is not online.' : 'Pick a player (or enter the world to give yourself an item).');
+      const slot = Math.max(0, Math.min(V.SLOTS.length - 1, m.slot | 0)), rarity = Math.max(0, Math.min(V.RARITY.length - 1, m.rarity | 0));
+      const level = Math.max(1, Math.min(V.MAX_LEVEL, m.level | 0 || 1)), name = typeof m.name === 'string' ? clean(m.name).slice(0, 40) : '';
+      const it = sim.giveItem(pid, slot, rarity, level, name);
+      if (!it) return say('That player is not online.');
+      if (it === 'full') return say('Their bags are full.');
+      saveChar(tc2); console.log(`admin ${a.name} gave ${it.n} (${V.RARITY[it.r].name}, lv ${it.lv}) to ${tc2.char.name}`);
+      return say(`Gave ${it.n} (${V.RARITY[it.r].name} ${V.SLOT_NAME[it.s]}, level ${it.lv}) to ${tc2.char.name}.`);
+    }
     case 'announce': {
       const text = clean(m.text).slice(0, 200);
       if (!text) return;

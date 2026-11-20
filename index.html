@@ -411,6 +411,9 @@
       <h3>Online</h3><div id="adminPlayers"></div>
       <h3>Spawn enemies next to you</h3>
       <div class="row"><select id="adminFoe"></select><input id="adminCount" type="number" min="1" max="20" value="3" aria-label="How many"><input id="adminLevel" type="number" min="1" max="35" placeholder="Lv" aria-label="Level"><button class="btn primary sm" type="button" id="adminSpawn">Spawn</button></div>
+      <h3>Give an item</h3>
+      <div class="row"><select id="giveWho" aria-label="Player"></select><select id="giveSlot" aria-label="Slot"></select><select id="giveRarity" aria-label="Rarity"></select></div>
+      <div class="row"><input id="giveLevel" type="number" min="1" max="200" placeholder="Lv" aria-label="Item level"><input id="giveName" maxlength="40" placeholder="Custom name (optional)" aria-label="Custom name"><button class="btn primary sm" type="button" id="giveBtn">Give</button></div>
       <h3>Announcement</h3>
       <div class="row"><input id="adminText" maxlength="200" placeholder="Message to everyone" aria-label="Announcement"><button class="btn primary sm" type="button" id="adminAnnounce">Send</button></div>
       <h3>Accounts</h3>

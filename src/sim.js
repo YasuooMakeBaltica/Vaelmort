@@ -339,6 +339,17 @@
       delete p.eq[slot]; p.bag.push(it); applyStats(p, false); invEvent(p);
       return true;
     };
+    // admin tool: put a fresh item straight into a player's bags
+    S.giveItem = function (pid, slot, rarity, level, name) {
+      const p = S.players.get(pid);
+      if (!p) return null;
+      if (p.bag.length >= V.INV_SIZE) return 'full';
+      const it = V.makeItem(level, rarity, Math.random, slot);
+      if (name) it.n = name;
+      p.bag.push(it); invEvent(p);
+      emit({ e: 'picked', id: pid, name: p.name, n: it.n, r: it.r, x: r1(p.x), y: r1(p.y) });
+      return it;
+    };
     S.discard = function (pid, i) { // drops the item at your feet for anyone to take
       const p = S.players.get(pid), it = p && p.bag[i];
       if (!it) return false;

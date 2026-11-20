@@ -52,6 +52,10 @@
       <div class="row"><select id="who"></select><select id="foe"></select><input id="n" type="number" min="1" max="20" value="3" aria-label="How many"><input id="lv" type="number" min="1" max="35" placeholder="Lv" aria-label="Level"><button class="primary" type="button" id="spawn">Spawn</button></div>
     </section>
     <section>
+      <h2>Give an item</h2>
+      <div class="row"><select id="gwho"></select><select id="gslot"></select><select id="grar"></select><input id="glv" type="number" min="1" max="200" placeholder="Lv"><input id="gname" maxlength="40" placeholder="Custom name (optional)"><button class="primary" type="button" id="give">Give</button></div>
+    </section>
+    <section>
       <h2>Announcement</h2>
       <div class="row"><input id="text" maxlength="200" placeholder="Message to everyone online"><button class="primary" type="button" id="announce">Send</button></div>
     </section>
@@ -111,6 +115,7 @@
       const o = document.createElement('option'); o.value = p.pid; o.textContent = p.name; who.appendChild(o);
     }
     if (keep) who.value = keep;
+    { const g = $('gwho'), k2 = g.value; g.innerHTML = m.players.map((p) => `<option value="${p.pid}">${esc(p.name)} (Lv ${p.level})</option>`).join(''); if (k2) g.value = k2; }
     if (!foesFilled) { foesFilled = true; for (const k of m.foes) { const o = document.createElement('option'); o.value = k; o.textContent = k; $('foe').appendChild(o); } }
     const chips = (el, names, o, label) => { el.innerHTML = names.length ? '' : '<span class="muted" style="border:0;padding:0">None</span>'; for (const n of names) { const s = document.createElement('span'); s.innerHTML = esc(n); const x = document.createElement('button'); x.type = 'button'; x.textContent = label; x.addEventListener('click', () => op(o, { name: n })); s.appendChild(x); el.appendChild(s); } };
     chips($('admins'), m.admins, 'unadmin', 'Remove'); chips($('banned'), m.banned, 'unban', 'Unban');
@@ -118,6 +123,9 @@
   $('loginForm').addEventListener('submit', (e) => { e.preventDefault(); connect({ t: 'login', panel: 1, name: $('name').value.trim(), pass: $('pass').value }); });
   $('refresh').addEventListener('click', () => op('list'));
   $('spawn').addEventListener('click', () => { if (!$('who').value) { msg('Nobody online to spawn next to.', true); return; } op('spawn', { pid: +$('who').value, type: $('foe').value, n: +$('n').value || 1, level: +$('lv').value || 0 }); });
+  $('gslot').innerHTML = ['Weapon', 'Helm', 'Chest', 'Gloves', 'Boots', 'Ring', 'Amulet'].map((n, i) => `<option value="${i}">${n}</option>`).join('');
+  $('grar').innerHTML = ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary'].map((n, i) => `<option value="${i}"${i === 4 ? ' selected' : ''}>${n}</option>`).join('');
+  $('give').addEventListener('click', () => { if (!$('gwho').value) { msg('Nobody online to give an item to.', true); return; } op('give', { pid: +$('gwho').value, slot: +$('gslot').value, rarity: +$('grar').value, level: +$('glv').value || 1, name: $('gname').value.trim() }); });
   $('announce').addEventListener('click', () => { const t = $('text').value.trim(); if (t) { op('announce', { text: t }); $('text').value = ''; } });
   $('addAdmin').addEventListener('click', () => { const n = $('acct').value.trim(); if (n) op('admin', { name: n }); });
   $('ban').addEventListener('click', () => { const n = $('acct').value.trim(); if (n && confirm(`Ban the account ${n}?`)) op('ban', { name: n }); });
