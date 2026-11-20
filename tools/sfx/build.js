@@ -134,8 +134,8 @@ const R = {
   ambOwl: [[L('rpg/shade5.wav', { r: 1.5, lp: 1500, g: -14 })]],
 };
 // per-name playback gain (dB) applied in game on top of the normalised file
-const GAIN = { step: -10, stepSnow: -10, stepHard: -10, ui: -8, xp: -10, fizzle: -10, arrow: -8, swing: -2, hit: -2, lightHit: -3, shot: -6, foeShot: -8, strike: -6,
-  boltShot: -4, soulShot: -4, seedShot: -4, lanceShot: -4, dodge: -6, kill: -4, open: -8, ambWolf: -10, ambDrip: -12, ambIce: -10, ambWhisper: -10, ambEmber: -12, ambBell: -12, ambOwl: -12 };
+const GAIN = { step: -10, stepSnow: -10, stepHard: -10, ui: -8, xp: -10, fizzle: -10, arrow: -8, swing: 2, swingHeavy: 2, hit: 1, crit: 2, lightHit: 0, shot: -2, foeShot: -3, strike: 0,
+  boltShot: 0, soulShot: 0, seedShot: 0, lanceShot: 0, arcaneShot: 0, fireShot: 0, dodge: -4, kill: -1, open: -8, ambWolf: -10, ambDrip: -12, ambIce: -10, ambWhisper: -10, ambEmber: -12, ambBell: -12, ambOwl: -12 };
 
 function build(name, variants) {
   const files = [];

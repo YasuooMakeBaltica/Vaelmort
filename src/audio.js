@@ -7,7 +7,7 @@
   const Snd = V.Snd = {};
   let ac = null, master, busMusic, busSfx, busAmb, reverb, noiseBuf;
   const LS = 'vaelmortAudio';
-  const vol = { master: 0.8, music: 0.55, sfx: 0.8, amb: 0.6, muted: false };
+  const vol = { master: 0.8, music: 0.4, sfx: 1, amb: 0.6, muted: false };
   try { Object.assign(vol, JSON.parse(localStorage.getItem(LS) || '{}')); } catch (e) { /* storage blocked */ }
   const save = () => { try { localStorage.setItem(LS, JSON.stringify(vol)); } catch (e) { /* storage blocked */ } };
   const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
@@ -41,7 +41,7 @@
     const t = ac.currentTime, m = vol.muted ? 0 : vol.master;
     master.gain.setTargetAtTime(m, t, 0.05);
     busMusic.gain.setTargetAtTime(vol.music * 0.9, t, 0.05);
-    busSfx.gain.setTargetAtTime(vol.sfx, t, 0.05);
+    busSfx.gain.setTargetAtTime(vol.sfx * 1.4, t, 0.05);
     busAmb.gain.setTargetAtTime(vol.amb * 0.7, t, 0.05);
   }
   // browsers only allow sound after a click or key press

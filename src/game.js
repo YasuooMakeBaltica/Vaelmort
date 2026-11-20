@@ -131,6 +131,9 @@
       case 'bounty': if (isMe) S.play(e.acc ? 'bountyTake' : e.ready ? 'bountyReady' : e.done ? 'bountyDone' : 'xp'); return;
       case 'nope': if (isMe) S.play('nope', undefined, undefined, {}, 0.3); return;
       case 'talents': if (isMe) S.play('learn'); return;
+      case 'picked': return S.play(e.r >= 3 ? 'bountyReady' : 'bountyTake', x, y);
+      case 'drop': if (e.r >= 4) S.play('lightKill', x, y); return;
+      case 'harvest': return S.play('soulShot', x, y, {}, 0.2);
       case 'cast': if (pl && SKILLS[e.sk]) S.play(SKILLS[e.sk].ult ? 'castUlt' : SKILL_SCHOOL[e.sk] || 'castMight', pl.x, pl.y, {}, 0.05); return;
       case 'buff': return S.play(BUFF_SND[e.b] || 'shieldBuff', x, y);
       case 'evolve': return S.play('evolve', x, y);
