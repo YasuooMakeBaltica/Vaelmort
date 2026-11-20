@@ -26,34 +26,54 @@
   };
 
   // ---------- classes ----------
-  V.ORDER = ['doomknight', 'necromancer', 'warlord', 'assassin', 'hunter', 'druid'];
+  // new characters pick a base class; at level 25 their trainer's trial lets them evolve into one of two classes
+  V.ORDER = ['knight', 'mage', 'vagabond'];
+  V.ADVANCED = ['doomknight', 'necromancer', 'warlord', 'assassin', 'hunter', 'druid'];
+  V.EVOLVE = { level: 25, kills: 20, minFoeLevel: 18 };
   V.CLASSES = {
-    doomknight: { role: 'Tank', res: 'wrath', hp: 240, speed: 132, armor: 0.2,
+    // ---- base classes ----
+    knight: { role: 'Vanguard', res: 'fury', hp: 200, speed: 136, armor: 0.1, base: true, evolves: ['doomknight', 'warlord'],
+      blurb: 'A sworn blade of Vaelmort Gate. Holds the line, and one day becomes a Doom Knight or a Warlord.',
+      passive: 'Stalwart: takes 10% less damage.',
+      basic: { name: 'Slash', kind: 'melee', dmg: 26, range: 62, arc: 2.0, hits: [4], kb: 80 },
+      skills: ['shieldbash', 'spin', 'challenge'] },
+    mage: { role: 'Arcanist', res: 'mana', hp: 150, speed: 138, armor: 0, base: true, evolves: ['druid', 'necromancer'],
+      blurb: 'A student of the old arts. Fire, frost and a quick blink; one day a Druid or a Necromancer.',
+      passive: 'Attunement: mana flows back quickly.',
+      basic: { name: 'Arcane Bolt', kind: 'shot', dmg: 22, speed: 340, range: 270, hits: [3], size: 3 },
+      skills: ['firebolt', 'frostnova', 'arcblink'] },
+    vagabond: { role: 'Drifter', res: 'energy', hp: 140, speed: 148, armor: 0, dodgeCd: 0.8, base: true, evolves: ['assassin', 'hunter'],
+      blurb: 'A drifter who lives by quick hands and dirty tricks. One day an Assassin or a Witch Hunter.',
+      passive: 'Light Step: dodge recovers faster.',
+      basic: { name: 'Shiv', kind: 'melee', dmg: 12, range: 56, arc: 1.9, hits: [1, 4], kb: 20 },
+      skills: ['knifetoss', 'smokestep', 'caltrops'] },
+    // ---- evolved classes ----
+    doomknight: { role: 'Tank', base: 'knight', res: 'wrath', hp: 240, speed: 132, armor: 0.2,
       blurb: 'A hellforged knight who drags enemies close and burns the ground beneath them.',
       passive: 'Hellforged: takes 20% less damage.',
       basic: { name: 'Cleave', kind: 'melee', dmg: 28, range: 64, arc: 2.2, hits: [5], kb: 80 },
       skills: ['hellslam', 'chain', 'bulwark', 'charge', 'doomfall'] },
-    necromancer: { role: 'Summoner', res: 'mana', hp: 160, speed: 138, armor: 0,
+    necromancer: { role: 'Summoner', base: 'mage', res: 'mana', hp: 160, speed: 138, armor: 0,
       blurb: 'Commands the dead, spears foes with bone and smothers them in plague.',
       passive: 'Soul Harvest: kills restore 6% health.',
       basic: { name: 'Soul Bolt', kind: 'shot', dmg: 24, speed: 330, range: 270, hits: [4], size: 3 },
       skills: ['raise', 'bonespear', 'plague', 'bonearmor', 'army'] },
-    warlord: { role: 'Bruiser', res: 'fury', hp: 215, speed: 138, armor: 0.08,
+    warlord: { role: 'Bruiser', base: 'knight', res: 'fury', hp: 215, speed: 138, armor: 0.08,
       blurb: 'A battlefield commander who spins through crowds and rallies everyone near the banner.',
       passive: 'Battle Rhythm: each hit shortens War Banner by 0.5s.',
       basic: { name: 'Sunder', kind: 'melee', dmg: 32, range: 66, arc: 1.9, hits: [5], kb: 100 },
       skills: ['banner', 'whirl', 'leap', 'rally', 'avatar'] },
-    assassin: { role: 'Striker', res: 'energy', hp: 130, speed: 150, armor: 0, dodgeCd: 0.66,
+    assassin: { role: 'Striker', base: 'vagabond', res: 'energy', hp: 130, speed: 150, armor: 0, dodgeCd: 0.66,
       blurb: 'Strikes from the shadows, exposes a target and finishes it in a blink.',
       passive: 'Evasive: dodge recovers 40% faster.',
       basic: { name: 'Twin Fangs', kind: 'melee', dmg: 11, range: 52, arc: 1.6, hits: [2, 4], kb: 20 },
       skills: ['step', 'fan', 'smoke', 'evisc', 'deathmark'] },
-    hunter: { role: 'Marksman', res: 'focus', hp: 160, speed: 144, armor: 0,
+    hunter: { role: 'Marksman', base: 'vagabond', res: 'focus', hp: 160, speed: 144, armor: 0,
       blurb: 'A silver-sworn hunter of witches: traps, volleys and holy fire from range.',
       passive: 'Silver Oath: +30% damage to magical enemies.',
       basic: { name: 'Silver Bolt', kind: 'shot', dmg: 25, speed: 520, range: 310, hits: [2], size: 2, pierce: 1 },
       skills: ['volley', 'trap', 'purge', 'tumble', 'rain'] },
-    druid: { role: 'Healer', res: 'mana', hp: 180, speed: 140, armor: 0.05,
+    druid: { role: 'Healer', base: 'mage', res: 'mana', hp: 180, speed: 140, armor: 0.05,
       blurb: 'Keeps the group alive with blooms and bark while wolves and storms do the fighting.',
       passive: 'Verdant: regenerates health twice as fast.',
       basic: { name: 'Thorn Seed', kind: 'shot', dmg: 21, speed: 300, range: 250, hits: [4], size: 3 },
@@ -65,7 +85,7 @@
       basic: { name: 'Radiant Lance', kind: 'shot', dmg: 42, speed: 560, range: 320, hits: [4], size: 3, pierce: 2 },
       skills: ['smite', 'sunbeam', 'blink', 'sanctuary', 'dawnbreak'] },
   };
-  V.ALL_CLASSES = V.ORDER.concat(['lightborn']);
+  V.ALL_CLASSES = V.ORDER.concat(V.ADVANCED, ['lightborn']);
 
   // ---------- skills (slot 1-4 + ultimate) ----------
   V.SKILLS = {
@@ -104,6 +124,18 @@
     roots: { name: 'Entangling Roots', lvl: 3, cd: 8, cost: 20, desc: 'A seed that roots its target for 3s and spreads roots to enemies nearby.' },
     wolves: { name: 'Spirit Wolves', lvl: 6, cd: 14, cost: 35, desc: 'Call two spirit wolves to fight for you for 10s.' },
     barkskin: { name: 'Barkskin', lvl: 10, cd: 18, cost: 20, desc: 'Take 40% less damage for 6s and hurt anything that strikes you.' },
+    // Knight
+    shieldbash: { name: 'Shield Bash', lvl: 1, cd: 6, cost: 15, desc: 'Slam your shield into the enemies in front of you for 30 damage, stunning them for 1s.' },
+    spin: { name: 'Spinning Slash', lvl: 1, cd: 7, cost: 20, desc: 'Spin once, cutting everything around you for 36 damage and knocking it back.' },
+    challenge: { name: 'Challenge', lvl: 1, cd: 15, cost: 15, desc: 'Roar a challenge: nearby enemies must attack you for 4s, and you take 50% less damage for 3s.' },
+    // Mage
+    firebolt: { name: 'Firebolt', lvl: 1, cd: 4, cost: 18, desc: 'Hurl a bolt of fire for 55 damage.' },
+    frostnova: { name: 'Frost Nova', lvl: 1, cd: 10, cost: 25, desc: 'Freeze the ground around you: 25 damage, enemies are rooted for 2s and slowed after.' },
+    arcblink: { name: 'Blink', lvl: 1, cd: 8, cost: 15, desc: 'Vanish and reappear at the cursor.' },
+    // Vagabond
+    knifetoss: { name: 'Knife Toss', lvl: 1, cd: 5, cost: 20, desc: 'Throw three knives in a fan for 20 damage each.' },
+    smokestep: { name: 'Smoke Step', lvl: 1, cd: 9, cost: 20, desc: 'Dash toward the cursor, leaving a cloud of smoke enemies cannot see through.' },
+    caltrops: { name: 'Caltrops', lvl: 1, cd: 10, cost: 15, desc: 'Scatter spikes on a spot: 18 damage and enemies there are slowed for 3s.' },
     smite: { name: 'Smite', lvl: 1, cd: 4, cost: 15, desc: 'Call a pillar of light down on a spot for 90 damage, stunning the enemies there.' },
     sunbeam: { name: 'Sunbeam', lvl: 1, cd: 6, cost: 20, desc: 'Fire a beam of sunlight that burns every enemy in a long line for 75 damage and marks them.' },
     blink: { name: 'Blink', lvl: 1, cd: 5, cost: 10, desc: 'Vanish in a flash and reappear at the cursor, blinding enemies where you land.' },
@@ -122,6 +154,10 @@
     hunter: { name: 'Inquisitor Sable', camp: 'Sable\'s Watch', at: [13, 7.5] },
     necromancer: { name: 'Morvane', camp: 'The Ossuary', at: [8.6, -12.3] },
     doomknight: { name: 'Ser Halvard', camp: 'Cinder Bastion', at: [-8.6, 12.3] },
+    // base class trainers stand in town (no camp of their own)
+    knight: { name: 'Captain Aldric', camp: 'Vaelmort Gate', at: [-4.6, 4.6], town: true },
+    mage: { name: 'Magister Ilsa', camp: 'Vaelmort Gate', at: [4.6, -4.6], town: true },
+    vagabond: { name: 'Old Fennick', camp: 'Vaelmort Gate', at: [4.6, 4.6], town: true },
   };
   V.BOARD_AT = [1.2, 4];       // the bounty board in Vaelmort Gate
   V.CAMP_R = 130;              // ground px around a camp where you are safe
@@ -232,6 +268,12 @@
         T('lbs5', 'Sunrise', 1, { flag: 'sunrise' }, 'Dawnbreak cooldown -40%.')] },
     ],
   };
+  V.ORIGIN = { // a base class's own small web; its nodes carry over into both of its evolutions
+    knight: [T('kn1', 'Hardened', 2, { hp: 0.05 }, '+5% maximum health per rank.'), T('kn2', 'Weapon Drill', 2, { dmg: 0.04 }, '+4% damage per rank.')],
+    mage: [T('mg1', 'Focus', 2, { resGen: 0.15 }, '+15% Mana regeneration per rank.'), T('mg2', 'Arcane Study', 2, { dmg: 0.04 }, '+4% damage per rank.')],
+    vagabond: [T('vg1', 'Light Feet', 2, { speed: 0.04 }, '+4% movement speed per rank.'), T('vg2', 'Dirty Tricks', 2, { crit: 0.03 }, '+3% critical chance per rank.')],
+  };
+
   // ---------- the skill web ----------
   // Each class has a star map: a free heart (which grants the first skill), three branches of skills,
   // passives and keystones, bridges between branches and the ultimate on the rim. A node can be bought
@@ -242,10 +284,26 @@
   // prices: a whole web (3 skills, 30 passive ranks, 3 keystones, 4 bridge ranks, the ultimate) costs 199 = points at level 200
   V.COST = { skill: 7, passive: 4, key: 9, ult: 15 };
   V.WEB = {};
+  // a base class's origin: its free skill (a second heart), its other two skills and two passives, in a small cluster
+  function addOrigin(base, add, link, from, b, ring0) {
+    const bs = V.CLASSES[base].skills, o = V.ORIGIN[base];
+    const h = from ? 'o_heart' : 'heart';
+    add({ id: h, kind: 'heart', skill: bs[0], name: V.SKILLS[bs[0]].name, max: 1, cost: 0, ring: ring0, lat: 0, b, desc: `Your ${V.CLASSES[base] ? base : ''} training. Grants ${V.SKILLS[bs[0]].name}.` });
+    if (from) link(from, h);
+    add({ id: bs[1], kind: 'skill', skill: bs[1], name: V.SKILLS[bs[1]].name, max: 1, cost: V.COST.skill, ring: ring0 + 1.05, lat: -0.55, b, desc: V.SKILLS[bs[1]].desc }); link(h, bs[1]);
+    add({ id: bs[2], kind: 'skill', skill: bs[2], name: V.SKILLS[bs[2]].name, max: 1, cost: V.COST.skill, ring: ring0 + 1.05, lat: 0.55, b, desc: V.SKILLS[bs[2]].desc }); link(h, bs[2]);
+    add(Object.assign({}, o[0], { kind: 'passive', cost: 3, ring: ring0 + 2.1, lat: -0.55, b })); link(bs[1], o[0].id);
+    add(Object.assign({}, o[1], { kind: 'passive', cost: 3, ring: ring0 + 2.1, lat: 0.55, b })); link(bs[2], o[1].id);
+  }
   for (const cls of V.ALL_CLASSES) {
-    const sk = V.CLASSES[cls].skills, tree = V.TALENTS[cls], nodes = {}, list = [];
+    const C = V.CLASSES[cls], sk = C.skills, tree = V.TALENTS[cls], nodes = {}, list = [];
     const add = (n) => { n.links = n.links || []; n.req = []; nodes[n.id] = n; list.push(n); return n; };
     const link = (a, b) => { nodes[a].links.push(b); nodes[b].links.push(a); nodes[b].req.push(a); }; // a must be owned before b
+    if (C.base === true) { // a base class: just its origin cluster, fanned out under the heart
+      addOrigin(cls, add, link, null, 1.5, 0);
+      V.WEB[cls] = { nodes, list };
+      continue;
+    }
     add({ id: 'heart', kind: 'heart', name: V.CLASSES[cls].basic.name + ' & ' + V.SKILLS[sk[0]].name, max: 1, cost: 0, ring: 0, lat: 0, b: -1, skill: sk[0],
       desc: `Where every ${cls === 'hunter' ? 'witch hunter' : cls} begins. Grants ${V.SKILLS[sk[0]].name}.` });
     // give each branch the skill its talents upgrade most
@@ -271,16 +329,20 @@
       add({ id, kind: 'passive', name: BRIDGE_NAME[b], max: 2, cost: V.COST.passive, ring: 3.5, lat: 0, b: b + 0.5, mod: BRIDGE[b], desc: BRIDGE_TXT[b] });
       link(tree[b].nodes[2].id, id); link(tree[right].nodes[1].id, id);
     }
+    if (C.base) addOrigin(C.base, add, link, 'heart', 0.5, 1.1); // what the character learned before evolving
     const u = sk[4];
     add({ id: u, kind: 'ult', skill: u, name: V.SKILLS[u].name, max: 1, cost: V.COST.ult, ring: 5.6, lat: 0, b: 0.5, desc: V.SKILLS[u].desc });
     link(tree[0].nodes[3].id, u); link(tree[1].nodes[3].id, u);
+    // evolved classes pay 3 per passive rank (their origin adds nodes); the ultimate takes whatever is left so every web costs exactly 199
+    if (C.base) for (const n of list) if (n.kind === 'passive' && !V.ORIGIN[C.base].some((o) => o.id === n.id)) n.cost = 3;
+    nodes[u].cost = 0; nodes[u].cost = V.talentPoints(V.MAX_LEVEL) - list.reduce((t, n) => t + n.max * n.cost, 0);
     V.WEB[cls] = { nodes, list };
   }
   V.webNode = (cls, id) => V.WEB[cls].nodes[id] || null;
   V.spentPoints = (cls, talents) => { let s = 0; for (const id in talents || {}) { const n = V.webNode(cls, id); if (n) s += (talents[id] | 0) * n.cost; } return s; };
   V.pointsLeft = (cls, level, talents) => V.talentPoints(level) - V.spentPoints(cls, talents);
   // every node it grows from must be owned (nodes where two paths meet need both)
-  V.reachable = (cls, talents, id) => { const n = V.webNode(cls, id); return !!n && n.req.length > 0 && n.req.every((l) => l === 'heart' || (talents[l] | 0) > 0); };
+  V.reachable = (cls, talents, id) => { const n = V.webNode(cls, id); return !!n && n.req.length > 0 && n.req.every((l) => V.webNode(cls, l).kind === 'heart' || (talents[l] | 0) > 0); };
   // can this character put one more point into node id?
   V.canLearn = (cls, level, talents, id) => {
     const n = V.webNode(cls, id);

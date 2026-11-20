@@ -78,7 +78,7 @@
       if (t === T.WATER || t === T.ABYSS) solid[k] = 1;
     }
     // trainer camps: a patch of packed earth that is never water
-    const camps = Object.keys(V.TRAINERS || {}).map((cls) => ({ cls, tx: C + V.TRAINERS[cls].at[0], ty: C + V.TRAINERS[cls].at[1] }));
+    const camps = Object.keys(V.TRAINERS || {}).filter((cls) => !V.TRAINERS[cls].town).map((cls) => ({ cls, tx: C + V.TRAINERS[cls].at[0], ty: C + V.TRAINERS[cls].at[1] }));
     const campDist = (tx, ty) => camps.reduce((m, c) => Math.min(m, Math.hypot(tx - c.tx, ty - c.ty)), 999);
     // distance to the walk from the edge of town out to any camp (kept clear of spawns so a level 2 can reach their trainer)
     const pathDist = (tx, ty) => camps.reduce((m, c) => {

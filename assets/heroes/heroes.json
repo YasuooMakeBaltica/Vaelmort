@@ -186,6 +186,78 @@
           "loop": false
         }
       }
+    },
+    "knight": {
+      "name": "Knight",
+      "glow": "#8fb0e0",
+      "animations": {
+        "idle": {
+          "file": "sheets/knight_idle.png",
+          "frames": 8,
+          "fps": 7,
+          "loop": true
+        },
+        "run": {
+          "file": "sheets/knight_run.png",
+          "frames": 8,
+          "fps": 12,
+          "loop": true
+        },
+        "attack": {
+          "file": "sheets/knight_attack.png",
+          "frames": 9,
+          "fps": 14,
+          "loop": false
+        }
+      }
+    },
+    "mage": {
+      "name": "Mage",
+      "glow": "#7fa8ff",
+      "animations": {
+        "idle": {
+          "file": "sheets/mage_idle.png",
+          "frames": 8,
+          "fps": 8,
+          "loop": true
+        },
+        "run": {
+          "file": "sheets/mage_run.png",
+          "frames": 8,
+          "fps": 12,
+          "loop": true
+        },
+        "attack": {
+          "file": "sheets/mage_attack.png",
+          "frames": 8,
+          "fps": 13,
+          "loop": false
+        }
+      }
+    },
+    "vagabond": {
+      "name": "Vagabond",
+      "glow": "#b5a27a",
+      "animations": {
+        "idle": {
+          "file": "sheets/vagabond_idle.png",
+          "frames": 8,
+          "fps": 8,
+          "loop": true
+        },
+        "run": {
+          "file": "sheets/vagabond_run.png",
+          "frames": 8,
+          "fps": 14,
+          "loop": true
+        },
+        "attack": {
+          "file": "sheets/vagabond_attack.png",
+          "frames": 8,
+          "fps": 15,
+          "loop": false
+        }
+      }
     }
   }
 }

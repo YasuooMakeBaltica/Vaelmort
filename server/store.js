@@ -64,6 +64,7 @@ function pgBackend(url) {
         talents text not null default '{}', bounties text not null default '{}', created_at timestamptz not null default now())`);
       await q('alter table characters add column if not exists bar text'); // null = from before the skill web
       await q('alter table accounts add column if not exists admin boolean not null default false');
+      await q('alter table characters add column if not exists trial text'); // base class evolution trial progress
       await q('alter table accounts add column if not exists banned boolean not null default false');
     },
     async getAccount(key) {
@@ -91,8 +92,8 @@ function pgBackend(url) {
       return r.rows[0] ? r.rows[0].key : null;
     },
     async listChars(key) {
-      const r = await q('select id, name, cls, level, xp, kills, talents, bounties, bar from characters where account = $1 order by id', [key]);
-      return r.rows.map((c) => ({ ...c, talents: parse(c.talents), bounties: parse(c.bounties), bar: c.bar ? parse(c.bar) : null }));
+      const r = await q('select id, name, cls, level, xp, kills, talents, bounties, bar, trial from characters where account = $1 order by id', [key]);
+      return r.rows.map((c) => ({ ...c, talents: parse(c.talents), bounties: parse(c.bounties), bar: c.bar ? parse(c.bar) : null, trial: c.trial ? parse(c.trial) : null }));
     },
     async charNameTaken(nameKey) { return (await q('select 1 from characters where name_key = $1', [nameKey])).rowCount > 0; },
     async createChar(key, name, cls, nameKey) {
@@ -102,8 +103,8 @@ function pgBackend(url) {
     },
     async deleteChar(key, id) { return (await q('delete from characters where id = $1 and account = $2', [id, key])).rowCount > 0; },
     async saveChar(id, d) {
-      await q('update characters set level = $2, xp = $3, kills = $4, talents = $5, bounties = $6, bar = $7 where id = $1',
-        [id, d.level, d.xp, d.kills, JSON.stringify(d.talents || {}), JSON.stringify(d.bounties || {}), d.bar ? JSON.stringify(d.bar) : null]);
+      await q('update characters set level = $2, xp = $3, kills = $4, talents = $5, bounties = $6, bar = $7, cls = $8, trial = $9 where id = $1',
+        [id, d.level, d.xp, d.kills, JSON.stringify(d.talents || {}), JSON.stringify(d.bounties || {}), d.bar ? JSON.stringify(d.bar) : null, d.cls, d.trial ? JSON.stringify(d.trial) : null]);
     },
   };
 }

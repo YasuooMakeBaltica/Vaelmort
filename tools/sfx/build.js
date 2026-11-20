@@ -94,6 +94,17 @@ const R = {
   bossSlam: [[L('bang/cannon_01.ogg'), L('r80/stones_01.ogg', { g: -2 })]],
   nova: [[L(FIRE(6)), L('bang/bang_05.ogg', { g: -6, lp: 1500 })]],
   fizzle: [[L(FIRE(7), { d: 0.3, fo: 0.15, r: 1.5, g: -14 })]],
+  // ---- base classes ----
+  arcaneShot: [[L('r80/spell_01.ogg', { d: 0.4, fo: 0.2, r: 1.25, g: -3 }), L(GEM[1], { r: 1.6, d: 0.2, g: -12 })]],
+  fireShot: [[L(FIRE(2), { d: 0.7, fo: 0.3, r: 1.2 }), L('rpg/swing.wav', { r: 0.8, g: -8 })]],
+  bash: [[L('r80/metal_03.ogg', { d: 0.4, g: -2 }), L('ken/chop.ogg', { r: 0.6, g: -2 }), L('rpg/chainmail1.wav', { g: -10, d: 0.3 })]],
+  spin: [[L('rpg/swing2.wav', { r: 0.85 }), L('rpg/swing3.wav', { at: 0.12, r: 0.95, g: -2 })]],
+  challenge: [[L('rpg/giant2.wav', { r: 1.25, d: 1, fo: 0.4 }), L('ken/metalPot1.ogg', { g: -8 })]],
+  frost: [[L('one/freeze.wav', { d: 1.6, fo: 0.6 }), L(GEM[3], { r: 0.7, g: -6 })]],
+  arcblink: [[L('one/drain.ogg', { rev: 1, d: 0.5, r: 1.8, g: -4 }), L('r80/spell_01.ogg', { at: 0.06, r: 1.6, d: 0.3, fo: 0.15, g: -6 })]],
+  toss: [[0, 0.04, 0.08].map((at, i) => L('ken/knifeSlice.ogg', { at, r: 1.4 + i * 0.1, g: -6 }))],
+  caltrops: [[L('r80/item_coins_01.ogg', { r: 0.6, g: -2 }), L('ken/metalLatch.ogg', { at: 0.05, g: -6 })]],
+  evolve: [[L('one/cure.mp3', { s: 0, d: 3, fo: 1.2, r: 0.85 }), L('bang/cannon_05.ogg', { g: -6, lp: 1200 }), L('rpg/metal-ringing.wav', { at: 0.2, r: 0.6, d: 2.2, fo: 1, g: -6 })]],
   // ---- Lightborn ----
   smite: [[L('one/earth.ogg', { r: 1.2, g: -2 }), L('bang/cannon_04.ogg', { r: 0.8, g: -4, lp: 1500 }), L(GEM[3], { r: 0.7, d: 1.2, fo: 0.6 }), L('rpg/metal-ringing.wav', { r: 0.5, at: 0.05, d: 1.6, fo: 0.8, g: -8 })]],
   beam: [[L('one/drain.ogg', { r: 1.2, d: 0.9, fo: 0.4 }), L('rpg/spell.wav', { r: 1.4, g: -4, d: 0.9, fo: 0.4 }), L(GEM[2], { r: 1.4, g: -8 })]],

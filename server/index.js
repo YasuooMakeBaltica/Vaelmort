@@ -106,7 +106,7 @@ async function createChar(ws, c, m) {
   const admin = !!c.acct.admin; // admins: any name up to 24 characters, taken names allowed, no character limit
   const name = typeof m.name === 'string' ? (admin ? clean(m.name).replace(/\s+/g, ' ').slice(0, 24) : m.name.trim()) : '';
   if (admin ? !name : !V.NAME_RE.test(name)) { send(ws, { t: 'error', msg: 'Character names are 3–16 letters, numbers or underscores and start with a letter.' }); return; }
-  if (!V.CLASSES[m.cls] || (V.CLASSES[m.cls].admin && !c.acct.admin)) { send(ws, { t: 'error', msg: 'Pick a class.' }); return; }
+  if (!V.CLASSES[m.cls] || (!c.acct.admin && !V.ORDER.includes(m.cls))) { send(ws, { t: 'error', msg: 'Pick a class.' }); return; }
   if (!admin && (c.chars || []).length >= V.MAX_CHARS) { send(ws, { t: 'error', msg: `You can have up to ${V.MAX_CHARS} characters. Delete one to make room.` }); return; }
   if (!admin && await store.charNameTaken(name)) { send(ws, { t: 'error', msg: 'That character name is taken.' }); return; }
   const ch = await store.createChar(c.acct.key, name, m.cls, admin ? name.toLowerCase() + '~' + Date.now().toString(36) : undefined);
@@ -228,6 +228,8 @@ wss.on('connection', (ws) => {
       else if (m.t === 'learn' && typeof m.node === 'string') { if (sim.learn(c.pid, m.node)) saveChar(c); }
       else if (m.t === 'bar' && Array.isArray(m.bar)) { if (sim.setBar(c.pid, m.bar.slice(0, 5).map((x) => (typeof x === 'string' ? x.slice(0, 24) : null)))) saveChar(c); }
       else if (m.t === 'respec') { if (sim.respec(c.pid)) saveChar(c); }
+      else if (m.t === 'trial') { if (sim.startTrial(c.pid)) saveChar(c); }
+      else if (m.t === 'evolve' && typeof m.cls === 'string') { if (sim.evolve(c.pid, m.cls)) { saveChar(c); console.log(`${c.char.name} evolved into ${m.cls}`); } }
       else if (m.t === 'accept' && Number.isInteger(m.z)) { if (sim.acceptBounty(c.pid, m.z)) saveChar(c); }
       else if (m.t === 'turnin' && Number.isInteger(m.z)) { if (sim.turnIn(c.pid, m.z)) saveChar(c); }
       else if (m.t === 'abandon' && Number.isInteger(m.z)) { if (sim.abandonBounty(c.pid, m.z)) saveChar(c); }

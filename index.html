@@ -183,6 +183,13 @@
   .vol { display: grid; gap: 6px; padding: 8px 10px; background: #110e18; border: 1px solid #2c2638; border-radius: 3px; }
   .vol label { display: grid; grid-template-columns: 70px minmax(0, 1fr); align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
   .vol input { accent-color: var(--gold); width: 100%; }
+  #evolveBody { display: grid; gap: 12px; }
+  .evolve { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .evcard { display: grid; gap: 6px; justify-items: center; text-align: center; padding: 12px; background: #110e18; border: 1px solid color-mix(in srgb, var(--c) 60%, #2c2638); border-radius: 4px; }
+  .evcard canvas { width: 96px; height: 96px; image-rendering: pixelated; }
+  .evcard h3 { margin: 0; font: 800 16px var(--display); letter-spacing: .1em; text-transform: uppercase; color: var(--c); }
+  .evcard p { margin: 0; font-size: 12.5px; }
+  @media (max-width: 520px) { .evolve { grid-template-columns: minmax(0, 1fr); } }
   .window.board { width: min(520px, calc(100vw - 24px)); }
   .win-head { position: sticky; top: 0; display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: linear-gradient(#1c1626, #141019); border-bottom: 1px solid var(--edge); z-index: 1; }
   .win-head h2 { margin: 0; flex: 1; font: 800 17px var(--display); letter-spacing: .12em; text-transform: uppercase; color: var(--gold); }
@@ -366,6 +373,10 @@
   <section class="window" id="winMap" hidden aria-label="World map">
     <div class="win-head"><h2>Vaelmort</h2><button class="x" type="button" data-close aria-label="Close">✕</button></div>
     <div class="win-body"><canvas id="worldmap" width="896" height="448"></canvas></div>
+  </section>
+  <section class="window board" id="winEvolve" hidden aria-label="Evolve">
+    <div class="win-head"><h2>Your Path</h2><button class="x" type="button" data-close aria-label="Close">✕</button></div>
+    <div class="win-body" id="evolveBody"></div>
   </section>
   <section class="window board" id="winAdmin" hidden aria-label="Admin panel">
     <div class="win-head"><h2>Admin</h2><button class="btn secondary sm" type="button" id="adminRefresh">Refresh</button><button class="x" type="button" data-close aria-label="Close">✕</button></div>

@@ -33,7 +33,7 @@
   let wantSkill = 0, wantDodge = false;
   const chatInput = $('chatInput');
   const typing = () => document.activeElement && document.activeElement.tagName === 'INPUT';
-  const WINS = ['winTalents', 'winChar', 'winMap', 'winMenu', 'winBoard', 'winAdmin'];
+  const WINS = ['winTalents', 'winChar', 'winMap', 'winMenu', 'winBoard', 'winAdmin', 'winEvolve'];
   const anyWindow = () => WINS.some((id) => !$(id).hidden);
   addEventListener('keydown', (e) => {
     if (typing() || !G.started) return;
@@ -96,7 +96,7 @@
   function startMove(o, e) { o.move = { x0: e.x0, y0: e.y0, x1: e.x1, y1: e.y1, t: 0, dur: e.dur, kind: e.kind }; }
 
   // ---------- sound: one place maps game events to effects ----------
-  const SHOT_SND = { '#ffd86a': 'lanceShot', '#3ccf97': 'soulShot', '#d6e4f2': 'boltShot', '#a6ec4f': 'seedShot', '#7fd04a': 'seedShot', '#e6dfc8': 'bone', '#ff7a2e': 'chain' };
+  const SHOT_SND = { '#7fa8ff': 'arcaneShot', '#ff8a3c': 'fireShot', '#ffd86a': 'lanceShot', '#3ccf97': 'soulShot', '#d6e4f2': 'boltShot', '#a6ec4f': 'seedShot', '#7fd04a': 'seedShot', '#e6dfc8': 'bone', '#ff7a2e': 'chain' };
   const SND_EVENT = { slam: 'slam', doomfall: 'doomfall', raise: 'raise', howl: 'howl', banner: 'banner', land: 'land', shout: 'shout', buff: 'buff', laststand: 'buff',
     fan: 'knives', smokebomb: 'smoke', whiff: 'swing', mark: 'mark', detonate: 'detonate', volley: 'volley', trapset: 'trapset', trapboom: 'trapboom', purge: 'holy',
     rainstart: 'rain', stormstart: 'thunder', bolt: 'thunder', bloom: 'bloom', cloud: 'cloud', pull: 'pull', absorb: 'absorb', die: 'die', crumble: 'kill', revive: 'raise',
@@ -124,6 +124,8 @@
       case 'bounty': if (isMe) S.play(e.acc ? 'bountyTake' : e.ready ? 'bountyReady' : e.done ? 'bountyDone' : 'xp'); return;
       case 'nope': if (isMe) S.play('nope', undefined, undefined, {}, 0.3); return;
       case 'talents': if (isMe) S.play('learn'); return;
+      case 'evolve': return S.play('evolve', x, y);
+      case 'trial': if (isMe) S.play(e.done ? 'bountyDone' : 'bountyTake'); return;
       case 'fx':
         if (e.k === 'blink') { S.play('blink', e.x, e.y, { leaving: true }); setTimeout(() => S.play('blink', e.x1, e.y1, { leaving: false }, 0), 90); }
         else S.play(e.k, x, y);
@@ -332,6 +334,7 @@
         if (pl) { ring(pl.x, pl.y, 90, '#ffd166', 1, 3); ring(pl.x, pl.y, 50, '#fff2c4', 0.8, 2, 0.15); for (let i = 0; i < 40; i++) part({ x: pl.x + rnd(-14, 14), y: pl.y + rnd(-5, 5), z: rnd(0, 10), vz: rnd(40, 90), life: rnd(0.8, 1.4), max: 1.2, color: i % 2 ? '#ffd166' : '#fff2c4', size: 2 }); }
         if (isMe) {
           L.level = e.lv;
+          if (CLASSES[L.cls].base === true && e.lv === V.EVOLVE.level) chatLine(`You are ready to evolve. ${V.TRAINERS[L.cls].name} in Vaelmort Gate has a trial for you.`, 'loot');
           toast(`Level ${e.lv}`, V.TRAINERS[L.cls] ? `A skill point is waiting. Spend it with ${V.TRAINERS[L.cls].name} at ${V.TRAINERS[L.cls].camp}.` : 'A skill point is waiting. Spend it on your skill web (N).', true);
           chatLine(`You reached level ${e.lv}.`, 'loot');
           G.flash = 0.2;
@@ -350,7 +353,16 @@
           state: 'idle', face: 1, flags: 0, t: 0, anim: Math.random() * 3, flash: 0, dead: false, far: true, label: false, ab: 0 };
         break;
       }
-      case 'fx': { // Lightborn
+      case 'fx': if (['bash', 'spin', 'challenge', 'frost', 'arcblink', 'toss', 'caltrops'].includes(e.k)) { // base class skills
+        if (e.k === 'bash') { ring(e.x, e.y, 50, '#cfd8e4', 0.3, 3); burst(e.x, e.y, 20, '#e6eef6', 14, 120, 0.4, 2); if (isMe) { G.shake = 4; hitstop(0.04); } }
+        else if (e.k === 'spin') { ring(e.x, e.y, 95, '#cfd8e4', 0.35, 3); ring(e.x, e.y, 70, '#8fb0e0', 0.3, 2, 0.05); burst(e.x, e.y, 20, '#e6eef6', 16, 150, 0.4, 1); }
+        else if (e.k === 'challenge') { ring(e.x, e.y, 220, '#ff6a4a', 0.7, 2); text(e.x, e.y - 70, 'CHALLENGE!', '#ff9a7a', true); }
+        else if (e.k === 'frost') { ring(e.x, e.y, 120, '#bfe6ff', 0.6, 3); ring(e.x, e.y, 80, '#ffffff', 0.4, 2, 0.05); burst(e.x, e.y, 6, '#dff4ff', 40, 160, 0.8, 2, { up: 0.6 }); G.decals.push({ kind: 'runes', x: e.x, y: e.y, r: 110, t: 0, life: 1.4, color: '#9fd8ff' }); }
+        else if (e.k === 'arcblink') { burst(e.x, e.y, 20, '#7fa8ff', 20, 110, 0.5, 2); burst(e.x1, e.y1, 20, '#c0d8ff', 20, 120, 0.5, 2, { up: 1.5 }); ring(e.x1, e.y1, 50, '#7fa8ff', 0.35, 2); }
+        else if (e.k === 'caltrops') { for (let i = 0; i < 14; i++) part({ x: e.x + rnd(-70, 70), y: e.y + rnd(-35, 35), z: 2, vx: 0, vy: 0, vz: 0, g: 0, life: 3, max: 3, color: '#a39c8c', size: 2, glow: false }); ring(e.x, e.y, 85, '#a39c8c', 0.4, 1); }
+        break;
+      } // falls through to the Lightborn effects below
+      case 'fxLight': { // Lightborn
         const W = '#fff3c4', Gd = '#ffd86a';
         if (e.k === 'smite') {
           G.bolts.push({ kind: 'column', x: e.x, y: e.y, t: 0, life: 0.55, w: 34 });
@@ -375,6 +387,21 @@
           text(e.x, e.y - 90, 'DAWNBREAK', '#ffffff', true);
           if (isMe) { G.shake = 10; hitstop(0.08); } else shake(6, e.x, e.y);
         }
+        break;
+      }
+      case 'trial':
+        if (!isMe) break;
+        if (e.start) { toast('Trial begun', `Defeat ${V.EVOLVE.kills} enemies of level ${V.EVOLVE.minFoeLevel} or higher`); chatLine(`Your trial: defeat ${V.EVOLVE.kills} enemies of level ${V.EVOLVE.minFoeLevel}+, then return to ${V.TRAINERS[L.cls].name}.`, 'sys'); }
+        if (e.done) { toast('Trial complete', `Return to ${V.TRAINERS[L.cls].name} to choose your path`, true); chatLine(`Trial complete. Return to ${V.TRAINERS[L.cls].name} in Vaelmort Gate to evolve.`, 'loot'); }
+        break;
+      case 'evolve': {
+        const nm = G.meta.heroes[e.cls].name;
+        if (pl) { for (let i = 0; i < 4; i++) ring(pl.x, pl.y, 60 + i * 50, glow(e.cls), 0.6 + i * 0.1, 3, i * 0.08); burst(pl.x, pl.y, 30, glow(e.cls), 60, 200, 1, 3, { up: 2.5 }); G.bolts.push({ kind: 'column', x: pl.x, y: pl.y, t: 0, life: 0.9, w: 30 }); }
+        if (isMe) {
+          L.cls = e.cls; G.flash = 0.4; closeWindows(); barKey = ''; updateClassHud(); lastPrompt = '-'; lastAtTrainer = null;
+          toast(`You are now a ${nm}`, `${V.TRAINERS[e.cls].name} keeps camp at ${V.TRAINERS[e.cls].camp}`, true);
+          chatLine(`You have become a ${nm}. Your new trainer, ${V.TRAINERS[e.cls].name}, keeps camp at ${V.TRAINERS[e.cls].camp}.`, 'loot');
+        } else if (e.name) chatLine(`${e.name} has become a ${nm}.`, 'sys');
         break;
       }
       case 'nope':
@@ -531,6 +558,8 @@
           tick(dt) { G.sendT -= dt; if (G.sendT <= 0) { G.sendT = 0.05; send({ t: 'in', ...inputPacket() }); } },
           learn(node) { send({ t: 'learn', node }); },
           setBar(bar) { send({ t: 'bar', bar }); },
+          trial() { send({ t: 'trial' }); },
+          evolve(cls) { send({ t: 'evolve', cls }); },
           respec() { send({ t: 'respec' }); },
           accept(z) { send({ t: 'accept', z }); },
           turnin(z) { send({ t: 'turnin', z }); },
@@ -1283,7 +1312,7 @@
     const t = nearbyThing();
     if (!t) return;
     if (t.kind === 'board') { toggleWindow('winBoard'); return; }
-    if (t.own) toggleWindow('winTalents');
+    if (t.own) toggleWindow(CLASSES[L.cls].base === true && L.level >= V.EVOLVE.level ? 'winEvolve' : 'winTalents');
     else say(`${t.n.name} only trains ${G.meta.heroes[t.n.cls].name}s`);
   }
   function updatePrompt() {
@@ -1347,17 +1376,18 @@
     if (lastZoneLabel !== zk) { lastZoneLabel = zk; hud.zoneLabel.textContent = camp ? camp.camp : zi.name; hud.zoneLvLabel.textContent = zi.safe || camp ? 'Safe' : `Lv ${zi.lv[0]}–${zi.lv[1]}`; }
     const [tx, ty] = V.toTile(L.x, L.y); hud.coords.textContent = `${Math.floor(tx)}, ${Math.floor(ty)}`;
     hud.onlineCount.hidden = G.mode !== 'online'; if (G.mode === 'online') hud.onlineCount.textContent = `${G.online} online`;
-    const bkey = JSON.stringify(s.bb);
+    const bkey = JSON.stringify(s.bb) + JSON.stringify(s.tr);
     if (bkey !== lastBounties) {
       lastBounties = bkey;
       const act = (s.bb || []).map((b, z) => b && b[2] ? [z, b] : null).filter(Boolean);
-      hud.tracker.hidden = !act.length;
-      hud.bList.innerHTML = act.map(([z, [i, n, st]]) => {
+      hud.tracker.hidden = !act.length && !s.tr;
+      hud.bList.innerHTML = (s.tr ? `<div class="bq${s.tr[1] ? ' ready' : ''}"><div class="bn">Trial of the ${esc(G.meta.heroes[L.cls].name)}</div><div class="bprog"><i style="width:${(100 * s.tr[0] / V.EVOLVE.kills).toFixed(1)}%"></i></div><div class="bt">${s.tr[1] ? `Done · return to ${esc(V.TRAINERS[L.cls].name)}` : `Enemies level ${V.EVOLVE.minFoeLevel}+: ${s.tr[0]} / ${V.EVOLVE.kills}`}</div></div>` : '') + act.map(([z, [i, n, st]]) => {
         const cur = V.bountyOf(z, { i });
         return `<div class="bq${st === 2 ? ' ready' : ''}"><div class="bn">${esc(cur.name)}</div><div class="bprog"><i style="width:${(100 * n / cur.n).toFixed(1)}%"></i></div>` +
           `<div class="bt">${st === 2 ? 'Done · turn in at the bounty board' : `${esc(cur.types.map((t) => FOES[t].name).join(' or '))}: ${n} / ${cur.n}`}</div></div>`;
       }).join('');
       if (!$('winBoard').hidden) renderBoard();
+      if (!$('winEvolve').hidden) renderEvolve();
     }
     updatePrompt();
     hud.death.hidden = !p.dead;
@@ -1401,6 +1431,7 @@
     if (id === 'winChar') renderChar();
     if (id === 'winMap') renderWorldMap();
     if (id === 'winBoard') renderBoard();
+    if (id === 'winEvolve') renderEvolve();
     if (id === 'winAdmin' && G.link && G.link.admin) G.link.admin('list');
     $(id).hidden = false; mouse.down = false; keys.clear();
   }
@@ -1414,6 +1445,35 @@
   $('respecBtn').addEventListener('click', () => { if (G.link) G.link.respec(); });
   $('menuChars').addEventListener('click', () => { closeWindows(); toCharSelect(); });
   $('menuLogout').addEventListener('click', () => { closeWindows(); logout(); });
+
+  // ---------- evolving a base class ----------
+  function renderEvolve() {
+    const s = G.self, C = CLASSES[L.cls], T = V.TRAINERS[L.cls], el = $('evolveBody'); if (!s || !el) return;
+    el.innerHTML = '';
+    if (C.base !== true) { el.innerHTML = '<p>You have already chosen your path.</p>'; return; }
+    const tr = s.tr;
+    const p = document.createElement('p'); p.className = 'fine'; el.appendChild(p);
+    if (!tr) {
+      p.textContent = `${T.name}: "You have grown strong. Prove it: defeat ${V.EVOLVE.kills} enemies of level ${V.EVOLVE.minFoeLevel} or higher, and I will show you the two paths before you."`;
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'btn primary'; b.textContent = 'Begin the trial'; b.addEventListener('click', () => { if (G.link) G.link.trial(); });
+      el.appendChild(b);
+    } else if (!tr[1]) {
+      p.textContent = `Trial in progress: ${tr[0]} / ${V.EVOLVE.kills} enemies of level ${V.EVOLVE.minFoeLevel}+ defeated.`;
+    } else {
+      p.textContent = `${T.name}: "You have proven yourself. Choose your path. This cannot be undone."`;
+      const row = document.createElement('div'); row.className = 'evolve'; el.appendChild(row);
+      for (const cls of C.evolves) {
+        const K = CLASSES[cls], card = document.createElement('div'); card.className = 'evcard'; card.style.setProperty('--c', glow(cls));
+        card.innerHTML = `<canvas width="96" height="96"></canvas><h3>${esc(G.meta.heroes[cls].name)}</h3><span class="fine">${esc(K.role)}</span><p>${esc(K.blurb)}</p><p class="fine">${esc(K.passive)}</p>`;
+        drawPortrait(card.querySelector('canvas'), cls, 0, true);
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'btn primary'; b.textContent = `Become a ${G.meta.heroes[cls].name}`;
+        b.addEventListener('click', () => { if (confirm(`Become a ${G.meta.heroes[cls].name}? This cannot be undone.`) && G.link) G.link.evolve(cls); });
+        card.appendChild(b); row.appendChild(card);
+      }
+    }
+    const web = document.createElement('button'); web.type = 'button'; web.className = 'btn secondary'; web.textContent = 'Open skill web'; web.addEventListener('click', () => openWindow('winTalents'));
+    el.appendChild(web);
+  }
 
   // ---------- admin ----------
   function updateAdminUi() { const b = $('btnAdmin'); if (b) b.hidden = !G.admin; $('menuAdmin').hidden = !G.admin; if (!G.admin && !$('winAdmin').hidden) closeWindows(); }
@@ -1723,7 +1783,7 @@
   function charsStatus(msg, isError) { const el = $('charsMsg'); el.textContent = msg || ''; el.classList.toggle('err', !!isError); }
   function setBusy(b) { for (const id of ['loginBtn', 'registerBtn', 'resumeBtn']) $(id).disabled = b; }
   function refreshResume() { const s = loadSession(); $('resumeRow').hidden = !s; if (s) $('resumeName').textContent = s.name; }
-  let Acc = null, selected = null, creating = false, newCls = 'necromancer';
+  let Acc = null, selected = null, creating = false, newCls = 'knight';
 
   function showLogin(msg) {
     if (Acc && Acc.mode === 'online') Acc.logout();
@@ -1799,11 +1859,12 @@
         <div class="preview"><canvas width="96" height="96" id="clsPreview"></canvas></div>
         <div><div class="sub">${esc(Cl.role)} · ${esc(RES[Cl.res].name)}</div><h3>${esc(G.meta.heroes[newCls].name)}</h3></div>
         <p>${esc(Cl.blurb)}</p>
-        <ul><li>${esc(Cl.passive)}</li><li><b>${esc(SKILLS[Cl.skills[0]].name)}</b>: ${esc(SKILLS[Cl.skills[0]].desc)}</li><li>${Cl.skills.length - 1} more skills to earn on the skill web, ending in <b>${esc(SKILLS[Cl.skills[Cl.skills.length - 1]].name)}</b>.</li></ul>
+        <ul><li>${esc(Cl.passive)}</li><li><b>${esc(SKILLS[Cl.skills[0]].name)}</b>: ${esc(SKILLS[Cl.skills[0]].desc)}</li>${Cl.base === true ? `<li>${Cl.skills.length - 1} more skills to learn, then at level ${V.EVOLVE.level} evolve into a <b>${esc(G.meta.heroes[Cl.evolves[0]].name)}</b> or a <b>${esc(G.meta.heroes[Cl.evolves[1]].name)}</b>.</li>` : `<li>${Cl.skills.length - 1} more skills to earn on the skill web, ending in <b>${esc(SKILLS[Cl.skills[Cl.skills.length - 1]].name)}</b>.</li>`}</ul>
         <form class="form" id="createForm" novalidate>
           <label for="newName">Name</label><input id="newName" maxlength="${G.admin ? 24 : 16}" spellcheck="false" autocomplete="off" placeholder="${G.admin ? 'Any name, up to 24 characters' : '3–16 letters, starts with a letter'}">
           <div class="row" style="grid-column: 1 / -1"><button class="btn primary" type="submit" id="createBtn">Create and enter</button>${Acc.list().length ? '<button class="btn secondary" type="button" id="cancelCreate">Cancel</button>' : ''}</div>
         </form>`;
+      if (!(G.admin ? V.ALL_CLASSES : ORDER).includes(newCls)) newCls = ORDER[0];
       const grid = $('clsGrid');
       for (const cls of G.admin ? V.ALL_CLASSES : ORDER) {
         const b = document.createElement('button'); b.type = 'button'; b.className = 'cls' + (CLASSES[cls].admin ? ' admincls' : ''); b.style.setProperty('--c', glow(cls));

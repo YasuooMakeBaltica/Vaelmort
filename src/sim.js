@@ -87,6 +87,7 @@
         aim: { a: 0, gx: sp.x, gy: sp.y, tgt: -1 }, attack: false, skillReq: 0, lastPosT: 0 };
       // characters from before the skill web keep their level but get every point back (once)
       p.refunded = !Array.isArray(ch.bar) && level > 1;
+      p.trial = ch.trial && typeof ch.trial === 'object' ? { n: Math.max(0, ch.trial.n | 0), done: !!ch.trial.done } : null;
       p.bar = V.cleanBar(cls, p.talents, Array.isArray(ch.bar) ? ch.bar : [CLASSES[cls].skills[0]]);
       applyStats(p, true);
       p.res = RES[CLASSES[cls].res].start;
@@ -103,7 +104,7 @@
       S.fields = S.fields.filter((F) => F.owner !== pid || F.kind === 'fire');
       emit({ e: 'leave', id: pid, name: p.name });
     };
-    S.charData = (pid) => { const p = S.players.get(pid); return p && { level: p.level, xp: R(p.xp), kills: p.kills, talents: p.talents, bounties: p.bounties, bar: p.bar }; };
+    S.charData = (pid) => { const p = S.players.get(pid); return p && { level: p.level, xp: R(p.xp), kills: p.kills, talents: p.talents, bounties: p.bounties, bar: p.bar, cls: p.cls, trial: p.trial }; };
     S.learn = function (pid, node) {
       const p = S.players.get(pid);
       if (!p || !V.canLearn(p.cls, p.level, p.talents, node)) return false;
@@ -145,6 +146,29 @@
       return made;
     };
     // arrange the action bar (allowed anywhere)
+    // ---------- evolving a base class ----------
+    S.startTrial = function (pid) {
+      const p = S.players.get(pid);
+      if (!p || !CLASSES[p.cls].base || CLASSES[p.cls].base !== true || p.trial || p.level < V.EVOLVE.level) return false;
+      if (!V.nearTrainer(p.cls, p.x, p.y, 40)) { emit({ e: 'nope', id: pid, why: 'trainer' }); return false; }
+      p.trial = { n: 0, done: false };
+      emit({ e: 'trial', id: pid, start: 1 });
+      return true;
+    };
+    S.evolve = function (pid, cls) {
+      const p = S.players.get(pid), C = CLASSES[cls];
+      if (!p || !C || C.base !== p.cls || !p.trial || !p.trial.done) return false;
+      if (!V.nearTrainer(p.cls, p.x, p.y, 40)) { emit({ e: 'nope', id: pid, why: 'trainer' }); return false; }
+      p.cls = cls; p.trial = null;
+      p.talents = V.cleanTalents(cls, p.level, p.talents); // origin nodes carry over
+      p.bar = V.cleanBar(cls, p.talents, p.bar);
+      if (!p.bar.includes(C.skills[0])) { const i = p.bar.indexOf(null); if (i >= 0) p.bar[i] = C.skills[0]; }
+      for (const m of S.minions) if (m.owner === pid) m.life = 0;
+      applyStats(p, true); p.res = RES[C.res].start; p.cds = {};
+      emit({ e: 'evolve', id: pid, cls, name: p.name });
+      emit({ e: 'talents', id: pid, tal: p.talents });
+      return true;
+    };
     S.setBar = function (pid, bar) {
       const p = S.players.get(pid);
       if (!p || !Array.isArray(bar)) return false;
@@ -213,7 +237,8 @@
     function gainRes(p, amt) { if (res(p).build) p.res = Math.min(p.resMax, p.res + amt * (1 + p.mods.resGen)); }
     function heroDamage(p, f, base, o = {}) {
       if (f.dead) return 0;
-      let m = p ? p.power : 1;
+      // minions scale with their master's power to the 1.5th: strong at max level, but well short of the old double scaling
+      let m = p ? (o.minion ? Math.pow(p.power, 1.5) : p.power) : 1;
       if (p) {
         if (o.minion) m *= 1 + p.mods.summonDmg;
         if (o.skill && p.mods.skill[o.skill]) m *= 1 + (p.mods.skill[o.skill].dmg || 0);
@@ -257,6 +282,10 @@
       for (const p of credited) {
         grantXp(p, V.foeXp(f.level, f.elite, f.def.boss) * V.xpScale(p.level, f.level));
         bountyProgress(p, f);
+        if (p.trial && !p.trial.done && f.level >= V.EVOLVE.minFoeLevel && !f.isAdd) {
+          p.trial.n++;
+          if (p.trial.n >= V.EVOLVE.kills) { p.trial.done = true; emit({ e: 'trial', id: p.id, done: 1 }); }
+        }
         if (p.buffs.avatar > 0 && p.mods.flags.has('endlessWar')) p.buffs.avatar += 1;
       }
       if (killer && killer.cls === 'necromancer' && killer.dead <= 0) {
@@ -362,7 +391,7 @@
     function summon(p, kind, n, life) {
       const isSk = kind === 'skeleton', hpMul = (1 + p.mods.summonHp) * (1 + 0.1 * (V.statLv(p.level) - 1));
       const mine = S.minions.filter((m) => m.owner === p.id && m.kind === kind && m.hp > 0 && m.life > 0);
-      while (mine.length + n > (isSk ? 9 : 3)) mine.shift().life = 0;
+      while (mine.length + n > (isSk ? 6 : 3)) mine.shift().life = 0;
       const pts = [];
       for (let i = 0; i < n; i++) {
         const a = p.aim.a + (i - (n - 1) / 2) * 0.9, d = 46 + (i % 2) * 12;
@@ -559,6 +588,58 @@
         p.buffs.barkskin = 6 + skillMod(p, 'barkskin', 'dur');
         emit({ e: 'buff', id: p.id, b: 'barkskin' });
       },
+      // ---- base classes ----
+      shieldbash(p) {
+        startAttack(p, true);
+        const a = p.aim.a;
+        for (const f of S.foes) {
+          if (f.dead) continue;
+          const d = gdist(p.x, p.y, f.x, f.y);
+          if (d > 85 + f.def.r || (d > 20 && Math.abs(angDiff(Math.atan2(f.y - p.y, f.x - p.x), a)) > 0.75)) continue;
+          heroDamage(p, f, 30, { skill: 'shieldbash', a, kb: 140 }); f.stun = Math.max(f.stun, f.def.boss ? 0.3 : 1);
+        }
+        emit({ e: 'fx', k: 'bash', id: p.id, x: r1(p.x + Math.cos(a) * 40), y: r1(p.y + Math.sin(a) * 20) });
+      },
+      spin(p) {
+        startAttack(p, true);
+        aoe(p, p.x, p.y, 95, 36, 130, { skill: 'spin' });
+        emit({ e: 'fx', k: 'spin', id: p.id, x: r1(p.x), y: r1(p.y) });
+      },
+      challenge(p) {
+        p.buffs.bulwark = 3;
+        for (const f of S.foes) if (!f.dead && gdist(p.x, p.y, f.x, f.y) < 220) { f.taunt = { id: p.id, t: 4 }; if (f.state === 'idle') f.state = 'chase'; }
+        emit({ e: 'fx', k: 'challenge', id: p.id, x: r1(p.x), y: r1(p.y) });
+      },
+      firebolt(p) {
+        startAttack(p, true);
+        shoot({ x: p.x, y: p.y, h: CHEST, a: p.aim.a, speed: 430, range: 300, dmg: 55, color: '#ff8a3c', size: 4, team: 'hero', owner: p.id, skill: 'firebolt', trail: 2,
+          target: S.foes[p.aim.tgt] && !S.foes[p.aim.tgt].dead ? S.foes[p.aim.tgt] : null });
+      },
+      frostnova(p) {
+        startAttack(p, true);
+        aoe(p, p.x, p.y, 120, 25, 40, { skill: 'frostnova', color: '#bfe6ff' }, (f) => { f.root = Math.max(f.root, f.def.boss ? 0.5 : 2); f.slow = Math.max(f.slow, 4); });
+        emit({ e: 'fx', k: 'frost', id: p.id, x: r1(p.x), y: r1(p.y) });
+      },
+      arcblink(p) {
+        const x0 = p.x, y0 = p.y, [tx, ty] = aimPoint(p, 210), [ex, ey] = moveTo(p, tx, ty, 0.08, 'step');
+        emit({ e: 'fx', k: 'arcblink', id: p.id, x: r1(x0), y: r1(y0), x1: r1(ex), y1: r1(ey) });
+      },
+      knifetoss(p) {
+        startAttack(p, true);
+        for (let i = -1; i <= 1; i++) shoot({ x: p.x, y: p.y, h: CHEST - 4, a: p.aim.a + i * 0.18, speed: 470, range: 250, dmg: 20, color: '#d8d2c4', size: 2, team: 'hero', owner: p.id, kind: 'knife', skill: 'knifetoss' });
+        emit({ e: 'fx', k: 'toss', id: p.id, x: r1(p.x), y: r1(p.y) });
+      },
+      smokestep(p) {
+        const x0 = p.x, y0 = p.y, [tx, ty] = aimPoint(p, 160);
+        moveTo(p, tx, ty, 0.14, 'step');
+        fieldAdd({ kind: 'smoke', x: x0, y: y0, r: 75, life: 2.5, owner: p.id });
+        emit({ e: 'smokebomb', id: p.id, x: r1(x0), y: r1(y0) });
+      },
+      caltrops(p) {
+        const [x, y] = aimPoint(p, 210);
+        aoe(p, x, y, 85, 18, 0, { skill: 'caltrops', color: '#c9c2b0' }, (f) => { f.slow = Math.max(f.slow, 3); });
+        emit({ e: 'fx', k: 'caltrops', id: p.id, x: r1(x), y: r1(y) });
+      },
       // ---- Lightborn (admin class) ----
       smite(p) {
         startAttack(p, true);
@@ -646,7 +727,7 @@
       if (p.dead > 0) { p.dead -= dt; p.skillReq = 0; if (p.dead <= 0) respawn(p); return; }
       p.zone = zoneAt(p.x, p.y);
       const rs = res(p);
-      if (rs.regen) p.res = Math.min(p.resMax, p.res + rs.regen * (1 + p.mods.resGen) * (p.cls === 'lightborn' ? 2 : 1) * dt);
+      if (rs.regen) p.res = Math.min(p.resMax, p.res + rs.regen * (1 + p.mods.resGen) * (p.cls === 'lightborn' ? 2 : p.cls === 'mage' ? 1.5 : 1) * dt);
       else if (S.t - p.lastCombat > 5) p.res = Math.max(0, p.res - 5 * dt);
       if (p.lastHit > 4) p.hp = Math.min(p.maxHp, p.hp + p.maxHp * (p.cls === 'druid' || p.cls === 'lightborn' ? 0.1 : 0.05) * dt);
       if (p.buffs.rally > 0) p.hp = Math.min(p.maxHp, p.hp + (p.rallyRate || 0) * dt);
@@ -757,7 +838,7 @@
             gx = m.x; gy = m.y;
             if (m.cd <= 0) {
               m.cd = m.atkCd; m.atkT = 0.25; m.face = m.tgt.x >= m.x ? 1 : -1;
-              heroDamage(owner, m.tgt, m.dmg * owner.power, { a: Math.atan2(m.tgt.y - m.y, m.tgt.x - m.x), kb: 15, minion: true, crit: false, color: m.kind === 'wolf' ? '#a8f0d0' : '#7dffc8' });
+              heroDamage(owner, m.tgt, m.dmg, { a: Math.atan2(m.tgt.y - m.y, m.tgt.x - m.x), kb: 15, minion: true, crit: false, color: m.kind === 'wolf' ? '#a8f0d0' : '#7dffc8' });
               if (!m.tgt.taunt && (m.tgt.state === 'idle' || Math.random() < 0.3)) m.tgt.tgt = { kind: 'minion', ref: m, id: m.id };
             }
           }
@@ -1031,7 +1112,7 @@
         lv: p.level, xp: R(p.xp), nx: V.xpNext(p.level), res: R(p.res), rm: p.resMax,
         bar: p.bar, cd: p.bar.map((sk) => sk ? R((p.cds[sk] || 0) * 10) : 0), dcd: R(p.cdDodge * 100),
         spd: Math.round(speedOf(p) * 10) / 10, sh: R(p.shield), k: p.kills, tp: V.pointsLeft(p.cls, p.level, p.talents),
-        bf: Object.entries(p.buffs).filter(([k]) => k !== 'ambush').map(([k, v]) => [k, R(v * 10)]), bb: b, dead: R(Math.max(0, p.dead) * 10),
+        bf: Object.entries(p.buffs).filter(([k]) => k !== 'ambush').map(([k, v]) => [k, R(v * 10)]), bb: b, tr: p.trial ? [p.trial.n, p.trial.done ? 1 : 0] : 0, dead: R(Math.max(0, p.dead) * 10),
       };
     }
 
@@ -1058,7 +1139,7 @@
       if (e.id !== undefined) { const p = S.players.get(e.id); return p ? [p.x, p.y] : null; }
       return null;
     }
-    const PRIVATE = new Set(['xp', 'bounty', 'nope', 'talents', 'cast']);
+    const PRIVATE = new Set(['xp', 'bounty', 'nope', 'talents', 'cast', 'trial']);
     S.view = function (pid, cache, events) {
       const me = S.players.get(pid);
       if (!me) return null;
@@ -1080,7 +1161,7 @@
         e: events.filter((e) => {
           if (e.id === pid) return true;
           if (PRIVATE.has(e.e)) return false;
-          if (e.e === 'join' || e.e === 'leave' || e.e === 'levelup' || e.e === 'foeadd') return true;
+          if (e.e === 'join' || e.e === 'leave' || e.e === 'levelup' || e.e === 'foeadd' || e.e === 'evolve') return true;
           const pos = eventPos(e);
           return !pos || near(pos[0], pos[1], 120) || (e.x0 !== undefined && near(e.x0, e.y0, 120));
         }),
