@@ -83,7 +83,7 @@
       blurb: 'A rare being of pure light. Smites the dark from afar and heals everyone near.',
       passive: 'Radiance: regenerates health and mana quickly; +30% damage to magical enemies.',
       basic: { name: 'Radiant Lance', kind: 'shot', dmg: 42, speed: 560, range: 320, hits: [4], size: 3, pierce: 2 },
-      skills: ['smite', 'sunbeam', 'blink', 'sanctuary', 'dawnbreak'] },
+      skills: ['smite', 'sunbeam', 'blink', 'sanctuary', 'dawnbreak'], extra: ['starrnova'] },
   };
   V.ALL_CLASSES = V.ORDER.concat(V.ADVANCED, ['lightborn']);
 
@@ -140,10 +140,13 @@
     sunbeam: { name: 'Sunbeam', lvl: 1, cd: 6, cost: 20, desc: 'Fire a beam of sunlight that burns every enemy in a long line for 75 damage and marks them.' },
     blink: { name: 'Blink', lvl: 1, cd: 5, cost: 10, desc: 'Vanish in a flash and reappear at the cursor, blinding enemies where you land.' },
     sanctuary: { name: 'Sanctuary', lvl: 1, cd: 14, cost: 30, desc: 'Heal yourself and allies nearby for 40% of their health, then more over 4s.' },
+    starrnova: { name: 'Starr Nova', lvl: 1, cd: 6, cost: 0, ult: true, desc: 'Become a falling star: everything around you, bosses included, is annihilated.' },
     dawnbreak: { name: 'Dawnbreak', lvl: 1, cd: 40, cost: 50, ult: true, desc: 'Become the dawn: a blinding nova for 240 damage that stuns everything around you and heals allies.' },
     storm: { name: 'Storm of the Grove', lvl: 15, cd: 55, cost: 60, ult: true, desc: 'Call a storm for 6s that strikes enemies in the area with lightning.' },
   };
-  V.SKILL_KEYS = ['1', '2', '3', '4', '5'];
+  V.SKILL_KEYS = ['1', '2', '3', '4', '5', '6'];
+  V.BAR_SIZE = V.SKILL_KEYS.length; // the most any class has
+  V.barSize = (cls) => (cls === 'lightborn' ? 6 : 5); // only the Lightborn gets a sixth slot
 
   // ---------- trainers, camps and the bounty board (tile offsets from the town centre) ----------
   // Each class trainer keeps a small camp at the edge of a zone. Camps are safe: enemies cannot attack you there.
@@ -330,6 +333,9 @@
       link(tree[b].nodes[2].id, id); link(tree[right].nodes[1].id, id);
     }
     if (C.base) addOrigin(C.base, add, link, 'heart', 0.5, 1.1); // what the character learned before evolving
+    for (const [i, x] of (C.extra || []).entries()) { // bonus skills that come free (Lightborn's Starr Nova)
+      add({ id: x, kind: 'heart', skill: x, name: V.SKILLS[x].name, max: 1, cost: 0, ring: 1.4, lat: i * 0.6, b: 1.5, desc: V.SKILLS[x].desc }); link('heart', x);
+    }
     const u = sk[4];
     add({ id: u, kind: 'ult', skill: u, name: V.SKILLS[u].name, max: 1, cost: V.COST.ult, ring: 5.6, lat: 0, b: 0.5, desc: V.SKILLS[u].desc });
     link(tree[0].nodes[3].id, u); link(tree[1].nodes[3].id, u);
@@ -362,8 +368,8 @@
   V.ownedSkills = (cls, talents) => V.WEB[cls].list.filter((n) => n.skill && (n.kind === 'heart' || (talents[n.id] | 0) > 0)).map((n) => n.skill);
   // the 1-5 action bar: owned skills only, no duplicates
   V.cleanBar = (cls, talents, bar) => {
-    const own = new Set(V.ownedSkills(cls, talents)), out = [null, null, null, null, null];
-    if (Array.isArray(bar)) bar.slice(0, 5).forEach((s, i) => { if (own.has(s) && !out.includes(s)) out[i] = s; });
+    const own = new Set(V.ownedSkills(cls, talents)), out = new Array(V.barSize(cls)).fill(null);
+    if (Array.isArray(bar)) bar.slice(0, out.length).forEach((s, i) => { if (own.has(s) && !out.includes(s)) out[i] = s; });
     return out;
   };
   V.computeMods = (cls, talents) => {

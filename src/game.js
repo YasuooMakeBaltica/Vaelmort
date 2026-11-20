@@ -50,6 +50,11 @@
     if (k === 'e') { if (!e.repeat) interact(); return; }
     keys.add(k);
     const i = V.SKILL_KEYS.indexOf(e.code && e.code.startsWith('Digit') ? e.code.slice(5) : k);
+    if (i === 5 && L.cls === 'lightborn' && !e.repeat) { // double-tap 6: the nuke
+      const now = performance.now();
+      if (now - (G.last6 || 0) < 350) { G.last6 = 0; if (G.link && G.link.nuke) G.link.nuke(); return; }
+      G.last6 = now;
+    }
     if (i >= 0) wantSkill = i + 1;
     if (k === ' ' || k === 'shift') wantDodge = true;
   });
@@ -134,13 +139,14 @@
       case 'picked': return S.play(e.r >= 3 ? 'bountyReady' : 'bountyTake', x, y);
       case 'drop': if (e.r >= 4) S.play('lightKill', x, y); return;
       case 'harvest': return S.play('soulShot', x, y, {}, 0.2);
+      case 'nuke': return S.play('starrNova');
       case 'cast': if (pl && SKILLS[e.sk]) S.play(SKILLS[e.sk].ult ? 'castUlt' : SKILL_SCHOOL[e.sk] || 'castMight', pl.x, pl.y, {}, 0.05); return;
       case 'buff': return S.play(BUFF_SND[e.b] || 'shieldBuff', x, y);
       case 'evolve': return S.play('evolve', x, y);
       case 'trial': if (isMe) S.play(e.done ? 'bountyDone' : 'bountyTake'); return;
       case 'fx':
         if (e.k === 'blink') { S.play('blink', e.x, e.y, { leaving: true }); setTimeout(() => S.play('blink', e.x1, e.y1, { leaving: false }, 0), 90); }
-        else S.play(e.k, x, y);
+        else S.play(e.k === 'starr' ? 'starrNova' : e.k, x, y);
     }
   }
   function fx(e) {
@@ -392,6 +398,13 @@
           ring(e.x, e.y, 230, Gd, 0.8, 2); ring(e.x, e.y, 160, W, 0.6, 2, 0.12); burst(e.x, e.y, 10, W, 40, 60, 1.2, 2, { up: 3, g: -20 });
           G.decals.push({ kind: 'sigil', x: e.x, y: e.y, r: 120, t: 0, life: 2, color: Gd, spin: -0.6 }); G.bolts.push({ kind: 'column', x: e.x, y: e.y, t: 0, life: 0.8, w: 26 });
           text(e.x, e.y - 80, 'SANCTUARY', Gd, true);
+        } else if (e.k === 'starr') { // a falling star: blinding flash, shockwaves, a star-shaped sigil
+          G.flash = 0.6; G.bolts.push({ kind: 'column', x: e.x, y: e.y, t: 0, life: 1, w: 60 }); G.bolts.push({ kind: 'flare', x: e.x, y: e.y, t: 0, life: 1.2 });
+          for (let i = 0; i < 6; i++) ring(e.x, e.y, 60 + i * 45, i % 2 ? W : Gd, 0.45 + i * 0.1, 4, i * 0.05);
+          G.decals.push({ kind: 'sigil', x: e.x, y: e.y, r: 270, t: 0, life: 2.6, color: Gd, spin: 1.2 });
+          burst(e.x, e.y, 30, W, 120, 340, 1.1, 3, { up: 2.5 });
+          text(e.x, e.y - 110, 'STARR NOVA', '#ffffff', true);
+          if (isMe) { G.shake = 14; hitstop(0.12); } else shake(8, e.x, e.y);
         } else if (e.k === 'dawn') {
           for (let i = 0; i < 4; i++) ring(e.x, e.y, 90 + i * 60, i % 2 ? W : Gd, 0.5 + i * 0.12, 3, i * 0.06);
           burst(e.x, e.y, 30, W, 80, 260, 0.9, 3, { up: 2 }); G.flash = 0.35;
@@ -401,6 +414,11 @@
         }
         break;
       }
+      case 'nuke':
+        chatLine('A starr is born', 'loot');
+        if (isMe) { G.flash = 0.8; G.shake = 18; hitstop(0.15); G.bolts.push({ kind: 'flare', x: e.x, y: e.y, t: 0, life: 2 }); text(e.x, e.y - 120, 'NUKE', '#ffffff', true); }
+        else { G.whiteout = 3.2; G.shake = 10; }
+        break;
       case 'trial':
         if (!isMe) break;
         if (e.start) { toast('Trial begun', `Defeat ${V.EVOLVE.kills} enemies of level ${V.EVOLVE.minFoeLevel} or higher`); chatLine(`Your trial: defeat ${V.EVOLVE.kills} enemies of level ${V.EVOLVE.minFoeLevel}+, then return to ${V.TRAINERS[L.cls].name}.`, 'sys'); }
@@ -582,6 +600,7 @@
           learn(node) { send({ t: 'learn', node }); },
           setBar(bar) { send({ t: 'bar', bar }); },
           trial() { send({ t: 'trial' }); },
+          nuke() { send({ t: 'nuke' }); },
           pick(id) { send({ t: 'pick', id }); },
           equip(i) { send({ t: 'equip', i }); },
           unequip(slot) { send({ t: 'unequip', slot }); },
@@ -771,6 +790,7 @@
     G.bolts = G.bolts.filter((b) => b.t < b.life);
     G.shake = Math.max(0, G.shake - dt * 18);
     G.flash = Math.max(0, G.flash - dt);
+    if (G.whiteout > 0) G.whiteout = Math.max(0, G.whiteout - dt);
   }
   function ambient(dt) {
     const z = G.zone;
@@ -1121,6 +1141,7 @@
     }
     ctx.globalCompositeOperation = 'source-over';
     if (G.flash > 0) { ctx.fillStyle = `rgba(255,220,180,${G.flash})`; ctx.fillRect(0, 0, W, H); }
+    if (G.whiteout > 0) { ctx.fillStyle = `rgba(255,255,255,${Math.min(1, G.whiteout / 1.2)})`; ctx.fillRect(0, 0, W, H); } // someone's nuke: solid white, then fading
 
     ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
     const myLv = L.level;
@@ -1290,7 +1311,7 @@
     setTimeout(() => d.remove(), 3300);
   }
   const abbr = (name) => name.split(/\s+/).filter((w) => !/^(of|the)$/i.test(w)).map((w) => w[0]).join('').slice(0, 2).toUpperCase();
-  const barOf = () => (G.self && G.self.bar) || [CLASSES[L.cls].skills[0], null, null, null, null];
+  const barOf = () => (G.self && G.self.bar) || [CLASSES[L.cls].skills[0]].concat(new Array(V.barSize(L.cls) - 1).fill(null));
   function iconEl(name, color, dim) { const c = document.createElement('canvas'); c.width = 32; c.height = 32; c.className = 'icon'; c.getContext('2d').drawImage(V.icon(name, color, { dim }), 0, 0); return c; }
   let barKey = '';
   function buildSlots() {

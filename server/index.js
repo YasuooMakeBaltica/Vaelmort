@@ -246,13 +246,14 @@ wss.on('connection', (ws) => {
       }
       if (m.t === 'in') sim.input(c.pid, m);
       else if (m.t === 'learn' && typeof m.node === 'string') { if (sim.learn(c.pid, m.node)) saveChar(c); }
-      else if (m.t === 'bar' && Array.isArray(m.bar)) { if (sim.setBar(c.pid, m.bar.slice(0, 5).map((x) => (typeof x === 'string' ? x.slice(0, 24) : null)))) saveChar(c); }
+      else if (m.t === 'bar' && Array.isArray(m.bar)) { if (sim.setBar(c.pid, m.bar.slice(0, V.BAR_SIZE).map((x) => (typeof x === 'string' ? x.slice(0, 24) : null)))) saveChar(c); }
       else if (m.t === 'respec') { if (sim.respec(c.pid)) saveChar(c); }
       else if (m.t === 'pick' && Number.isInteger(m.id)) { if (sim.pick(c.pid, m.id)) saveChar(c); }
       else if (m.t === 'equip' && Number.isInteger(m.i)) { if (sim.equip(c.pid, m.i)) saveChar(c); }
       else if (m.t === 'unequip' && V.SLOTS.includes(m.slot)) { if (sim.unequip(c.pid, m.slot)) saveChar(c); }
       else if (m.t === 'discard' && Number.isInteger(m.i)) { if (sim.discard(c.pid, m.i)) saveChar(c); }
       else if (m.t === 'trash' && (Number.isInteger(m.i) || V.SLOTS.includes(m.slot))) { if (sim.trash(c.pid, m.i, V.SLOTS.includes(m.slot) ? m.slot : null)) saveChar(c); }
+      else if (m.t === 'nuke') { if (sim.nuke(c.pid)) console.log(`${c.char.name} nuked the map`); }
       else if (m.t === 'trial') { if (sim.startTrial(c.pid)) saveChar(c); }
       else if (m.t === 'evolve' && typeof m.cls === 'string') { if (sim.evolve(c.pid, m.cls)) { saveChar(c); console.log(`${c.char.name} evolved into ${m.cls}`); } }
       else if (m.t === 'accept' && Number.isInteger(m.z)) { if (sim.acceptBounty(c.pid, m.z)) saveChar(c); }

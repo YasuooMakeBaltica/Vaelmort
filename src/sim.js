@@ -91,6 +91,7 @@
       const gear = V.cleanGear(ch.gear); p.bag = gear.inv; p.eq = gear.eq; // (p.inv is the invulnerability timer)
       p.trial = ch.trial && typeof ch.trial === 'object' ? { n: Math.max(0, ch.trial.n | 0), done: !!ch.trial.done } : null;
       p.bar = V.cleanBar(cls, p.talents, Array.isArray(ch.bar) ? ch.bar : [CLASSES[cls].skills[0]]);
+      for (const x of CLASSES[cls].extra || []) if (!p.bar.includes(x)) { const i = p.bar.lastIndexOf(null); if (i >= 0) p.bar[i] = x; } // free bonus skills go straight onto the bar
       applyStats(p, true);
       p.res = RES[CLASSES[cls].res].start;
       S.players.set(pid, p);
@@ -217,7 +218,7 @@
       if (Number.isFinite(m.gx) && Number.isFinite(m.gy)) { p.aim.gx = m.gx; p.aim.gy = m.gy; }
       p.aim.tgt = Number.isInteger(m.tg) ? m.tg : -1;
       p.attack = !!m.at;
-      if (Number.isInteger(m.sk) && m.sk >= 1 && m.sk <= 5) p.skillReq = m.sk;
+      if (Number.isInteger(m.sk) && m.sk >= 1 && m.sk <= V.barSize(p.cls)) p.skillReq = m.sk;
       if (Number.isInteger(m.row)) p.row = m.row & 7;
       p.moving = !!m.mv;
       if (m.dg && p.cdDodge <= 0 && p.dead <= 0) {
@@ -340,6 +341,16 @@
       if (!it) return false;
       if (p.bag.length >= V.INV_SIZE) { emit({ e: 'nope', id: pid, why: 'bags' }); return false; }
       delete p.eq[slot]; p.bag.push(it); applyStats(p, false); invEvent(p);
+      return true;
+    };
+    // Lightborn's nuke (double-tap 6): every enemy on the map dies at once
+    S.nuke = function (pid) {
+      const p = S.players.get(pid);
+      if (!p || p.cls !== 'lightborn' || p.dead > 0 || (p.cds.nuke || 0) > 0) return false;
+      p.cds.nuke = 30;
+      let n = 0;
+      for (const f of S.foes) if (!f.dead && f.type !== 'dummy') { damageFoe(f, f.hp + 1, true, 0, 0, null, '#ffffff'); n++; }
+      emit({ e: 'nuke', id: pid, name: p.name, x: r1(p.x), y: r1(p.y), n });
       return true;
     };
     // admin tool: put a fresh item straight into a player's bags
@@ -716,6 +727,12 @@
         emit({ e: 'fx', k: 'caltrops', id: p.id, x: r1(x), y: r1(y) });
       },
       // ---- Lightborn (admin class) ----
+      starrnova(p) { // admin power: annihilates everything nearby
+        startAttack(p, true);
+        p.inv = Math.max(p.inv, 0.6);
+        for (const f of S.foes) if (!f.dead && f.type !== 'dummy' && gdist(p.x, p.y, f.x, f.y) < 260 + f.def.r) { f.hitBy.set(p.id, S.t); damageFoe(f, f.hp + 1, true, Math.atan2(f.y - p.y, f.x - p.x), 0, p, '#ffffff'); }
+        emit({ e: 'fx', k: 'starr', id: p.id, x: r1(p.x), y: r1(p.y) });
+      },
       smite(p) {
         startAttack(p, true);
         const [x, y] = aimPoint(p, 280), hit = () => aoe(p, x, y, 105, 90, 90, { skill: 'smite', color: '#ffe08a' }, (f) => { f.stun = Math.max(f.stun, f.def.boss ? 0.3 : 0.8); });
@@ -1238,7 +1255,7 @@
         e: events.filter((e) => {
           if (e.id === pid) return true;
           if (PRIVATE.has(e.e)) return false;
-          if (e.e === 'join' || e.e === 'leave' || e.e === 'levelup' || e.e === 'foeadd' || e.e === 'evolve') return true;
+          if (e.e === 'join' || e.e === 'leave' || e.e === 'levelup' || e.e === 'foeadd' || e.e === 'evolve' || e.e === 'nuke') return true;
           const pos = eventPos(e);
           return !pos || near(pos[0], pos[1], 120) || (e.x0 !== undefined && near(e.x0, e.y0, 120));
         }),

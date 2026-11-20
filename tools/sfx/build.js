@@ -108,6 +108,11 @@ const R = {
   avatarBuff: [[L('rpg/giant2.wav', { r: 0.9, d: 1.4, fo: 0.5, echo: 2 }), L('bang/cannon_03.ogg', { at: 0.1, r: 0.8, g: -4 })]],
   barkBuff: [[L('ken/creak1.ogg', { r: 0.7 }), L('ken/creak3.ogg', { at: 0.15, r: 0.6, g: -2 }), L('r80/wood_05.ogg', { at: 0.2, r: 0.7, g: -6 })]],
   shieldBuff: [[L('rpg/magic1.wav', { r: 0.8, d: 1, fo: 0.4, echo: 1 }), L(GEM[2], { r: 0.7, g: -6 })]],
+  // Starr Nova: a rising reversed swell, a cannon blast in a vast hall, shattering crystal, a choir and a long ringing tail
+  starrNova: [[L('one/drain.ogg', { rev: 1, d: 1.1, r: 0.45, lp: 1400, g: 0 }), L('one/ghost.mp3', { rev: 1, d: 1.1, r: 0.5, lp: 1200, g: -4 }),
+    L('bang/cannon_05.ogg', { at: 1.0, r: 0.5, lp: 1100, echo: 2 }), L('bang/cannon_01.ogg', { at: 1.03, r: 0.6, lp: 800, g: -2 }),
+    L('r80/creature_roar_02.ogg', { at: 1.05, r: 0.55, lp: 1600, g: -6, echo: 1 }), L('rpg/shade9.wav', { at: 1.1, r: 0.45, d: 2.4, fo: 1.2, lp: 1200, g: -6 }),
+    L('rpg/metal-ringing.wav', { at: 1.0, r: 0.28, d: 3.4, fo: 1.8, lp: 900, g: -4, echo: 2 }), L('one/ghost.mp3', { at: 1.4, r: 0.6, d: 2.4, fo: 1.4, lp: 900, g: -8 })]],
   // ---- base classes ----
   arcaneShot: [[L('r80/spell_01.ogg', { d: 0.4, fo: 0.2, r: 1.25, g: -3 }), L(GEM[1], { r: 1.6, d: 0.2, g: -12 })]],
   fireShot: [[L(FIRE(2), { d: 0.7, fo: 0.3, r: 1.2 }), L('rpg/swing.wav', { r: 0.8, g: -8 })]],
