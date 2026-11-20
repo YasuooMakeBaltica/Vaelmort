@@ -53,10 +53,12 @@
       return p;
     };
     S.removePlayer = function (pid) {
-      if (!S.players.delete(pid)) return;
+      const p = S.players.get(pid);
+      if (!p) return;
+      S.players.delete(pid);
       for (const m of S.minions) if (m.owner === pid) m.life = 0;
       for (const f of S.foes) if (f.tgt && f.tgt.id === pid) f.tgt = null;
-      emit({ e: 'leave', id: pid });
+      emit({ e: 'leave', id: pid, name: p.name });
     };
     function correct(p) { p.seq++; emit({ e: 'pos', id: p.id, x: r1(p.x), y: r1(p.y), seq: p.seq }); }
 
@@ -455,20 +457,62 @@
       updateShots(dt);
     };
     S.drainEvents = function () { const e = S.events; S.events = []; return e; };
+
+    // ---------- network rows ----------
+    const R = Math.round;
+    const playerRow = (p) => [p.id, p.name, p.cls, R(p.x), R(p.y), p.row, p.atk ? (p.atk.skill ? 2 : 1) : 0, p.atk ? R(p.atk.t * 1000) : 0,
+      Math.ceil(p.hp), p.maxHp, p.dead > 0 ? 1 : 0, p.banner ? 1 : 0, p.moving ? 1 : 0, p.dodgeT > 0 ? 1 : 0, p.kills,
+      R(p.cdSkill * 100), R(p.cdDodge * 100), p.inv > 0 ? 1 : 0, p.seq];
+    // foe rows: [id, 0] dead, [id, 2] out of view, [id, 1, ...] alive and visible
+    const foeRow = (f) => [f.id, 1, R(f.x), R(f.y), Math.ceil(f.hp), V.FOE_STATES.indexOf(f.state), f.face,
+      (f.root > 0 ? 1 : 0) | (f.exposed > 0 ? 2 : 0) | (f.marked > 0 ? 4 : 0), R(Math.max(0, f.t) * 100), f.type === 'dummy' && f.idle < 3 ? 1 : 0];
+    const shotRow = (s) => [s.id, R(s.x), R(s.y), s.h, R(s.vx), R(s.vy), s.color, s.size, s.trail];
+    const minionRow = (m) => [m.id, m.owner, R(m.x), R(m.y), m.face, R(Math.max(0, m.rise) * 100), m.atkT > 0 ? 1 : 0, m.life < 3 ? 1 : 0, m.moving ? 1 : 0];
+    const fieldRow = (F) => [F.id, V.FIELD_KINDS.indexOf(F.kind), R(F.x), R(F.y), F.r, R(F.t * 100), R(F.life * 100), F.seed];
+
+    // Everything, every time: used offline, where nothing crosses a network.
     S.snapshot = function () {
-      const P = [];
-      for (const p of S.players.values()) {
-        P.push([p.id, p.name, p.cls, r1(p.x), r1(p.y), p.row, p.atk ? (p.atk.skill ? 2 : 1) : 0, p.atk ? Math.round(p.atk.t * 1000) : 0,
-          Math.ceil(p.hp), p.maxHp, p.dead > 0 ? 1 : 0, p.banner ? 1 : 0, p.moving ? 1 : 0, p.dodgeT > 0 ? 1 : 0, p.kills,
-          Math.round(p.cdSkill * 100), Math.round(p.cdDodge * 100), p.inv > 0 ? 1 : 0, p.seq]);
-      }
       return {
-        p: P,
-        f: S.foes.map((f) => f.dead ? [f.id, 0] : [f.id, 1, r1(f.x), r1(f.y), Math.ceil(f.hp), V.FOE_STATES.indexOf(f.state), f.face,
-          (f.root > 0 ? 1 : 0) | (f.exposed > 0 ? 2 : 0) | (f.marked > 0 ? 4 : 0), Math.round(Math.max(0, f.t) * 100), f.type === 'dummy' && f.idle < 3 ? 1 : 0]),
-        s: S.shots.map((s) => [s.id, r1(s.x), r1(s.y), s.h, Math.round(s.vx), Math.round(s.vy), s.color, s.size, s.trail]),
-        m: S.minions.map((m) => [m.id, m.owner, r1(m.x), r1(m.y), m.face, Math.round(Math.max(0, m.rise) * 100), m.atkT > 0 ? 1 : 0, m.life < 3 ? 1 : 0, m.moving ? 1 : 0]),
-        d: S.fields.map((F) => [F.id, V.FIELD_KINDS.indexOf(F.kind), r1(F.x), r1(F.y), F.r, Math.round(F.t * 100), Math.round(F.life * 100), F.seed]),
+        p: [...S.players.values()].map(playerRow),
+        f: S.foes.map((f) => (f.dead ? [f.id, 0] : foeRow(f))),
+        s: S.shots.map(shotRow), m: S.minions.map(minionRow), d: S.fields.map(fieldRow),
+      };
+    };
+
+    // What one online player needs: things within about a screen and a half of them, and only the
+    // foes whose row changed since the last view sent to them (cache: Map foe id -> last row string).
+    const VIEW_X = 760, VIEW_Y = 480;
+    function eventPos(e) {
+      if (e.x !== undefined) return [e.x, e.y];
+      if (e.x1 !== undefined) return [e.x1, e.y1];
+      if (e.f !== undefined) { const f = S.foes[e.f]; return f ? [f.x, f.y] : null; }
+      if (e.pts) return e.pts[0];
+      if (e.m !== undefined) { const m = S.minions.find((q) => q.id === e.m); return m ? [m.x, m.y] : null; }
+      if (e.id !== undefined) { const p = S.players.get(e.id); return p ? [p.x, p.y] : null; }
+      return null;
+    }
+    S.view = function (pid, cache, events) {
+      const me = S.players.get(pid);
+      if (!me) return null;
+      const near = (x, y, pad = 0) => Math.abs(x - me.x) < VIEW_X + pad && Math.abs(y - me.y) < VIEW_Y + pad;
+      const f = [];
+      for (const foe of S.foes) {
+        const row = foe.dead ? [foe.id, 0] : near(foe.x, foe.y) ? foeRow(foe) : [foe.id, 2];
+        const key = row.join(',');
+        if (cache.get(foe.id) !== key) { cache.set(foe.id, key); f.push(row); }
+      }
+      const p = [];
+      for (const q of S.players.values()) if (q === me || near(q.x, q.y)) p.push(playerRow(q));
+      return {
+        p, f,
+        s: S.shots.filter((s) => near(s.x, s.y)).map(shotRow),
+        m: S.minions.filter((m) => near(m.x, m.y)).map(minionRow),
+        d: S.fields.filter((F) => near(F.x, F.y, F.r)).map(fieldRow),
+        e: events.filter((e) => {
+          if (e.id === pid || e.e === 'join' || e.e === 'leave') return true;
+          const pos = eventPos(e);
+          return !pos || near(pos[0], pos[1], 120) || (e.x0 !== undefined && near(e.x0, e.y0, 120));
+        }),
       };
     };
     return S;

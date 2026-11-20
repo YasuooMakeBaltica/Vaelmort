@@ -14,7 +14,7 @@
   let W = 320, H = 180, S = 3;
 
   const G = {
-    t: 0, started: false, mode: null, map: null, ground: null, spr: null, meta: null, sheets: {}, mini: null, coll: null, link: null,
+    t: 0, started: false, mode: null, snapDt: 0.1, lastSnap: 0, map: null, ground: null, spr: null, meta: null, sheets: {}, mini: null, coll: null, link: null,
     players: new Map(), foes: [], shots: new Map(), minions: new Map(), fields: new Map(), me: null,
     parts: [], rings: [], texts: [], ghosts: [], decals: [],
     zone: -1, dark: 0.45, cam: { x: 0, y: 0 }, shake: 0, stop: 0, flash: 0, miniT: 0, aim: null, sendT: 0,
@@ -91,7 +91,7 @@
     const foe = e.f !== undefined ? G.foes[e.f] : null;
     switch (e.e) {
       case 'join': if (G.mode === 'online' && !isMe) chatLine(`${e.name} entered Vaelmort`, 'sys'); break;
-      case 'leave': { const p = G.players.get(e.id); if (G.mode === 'online' && p) chatLine(`${p.name} left`, 'sys'); break; }
+      case 'leave': if (G.mode === 'online' && e.name) chatLine(`${e.name} left`, 'sys'); break;
       case 'class': if (pl) { const c = glow(e.cls); ring(pl.x, pl.y, 60, c, 0.5, 2); burst(pl.x, pl.y, 20, c, 18, 80, 0.6); } break;
       case 'dodge': if (pl && !isMe) burst(pl.x, pl.y, 2, '#6f6879', 8, 40, 0.4, 1, { glow: false }); break;
       case 'hit':
@@ -215,14 +215,23 @@
   }
 
   // ---------- snapshot -> client state ----------
+  // Remote things move in a straight line to their newest position, arriving about when the next update is due.
+  function target(o, x, y) { o.sx = x; o.sy = y; o.v = Math.hypot(x - o.x, y - o.y) / G.snapDt; }
+  function glide(o, dt, snapAt) {
+    const dx = o.sx - o.x, dy = o.sy - o.y, d = Math.hypot(dx, dy), step = (o.v || 0) * dt;
+    if (d > snapAt || step >= d) { o.x = o.sx; o.y = o.sy; } else if (d > 0) { o.x += dx / d * step; o.y += dy / d * step; }
+  }
   function applySnap(s) {
     const now = G.t, seen = new Set();
+    if (G.lastSnap) G.snapDt = clamp(G.snapDt * 0.8 + (now - G.lastSnap) * 0.2, 0.016, 0.25);
+    G.lastSnap = now;
     for (const a of s.p) {
       const [id, name, cls, x, y, row, atkMode, atkMs, hp, maxHp, dead, bannerOn, moving, dodging, kills, cdS, cdD, inv, seq] = a;
       seen.add(id);
       let p = G.players.get(id);
       if (!p) { p = { id, x, y, animT: Math.random(), ghostT: 0 }; G.players.set(id, p); }
-      Object.assign(p, { name, cls, sx: x, sy: y, row, atkMode, atkT: atkMs / 1000, hp, maxHp, dead: !!dead, banner: !!bannerOn, moving: !!moving,
+      target(p, x, y);
+      Object.assign(p, { name, cls, row, atkMode, atkT: atkMs / 1000, hp, maxHp, dead: !!dead, banner: !!bannerOn, moving: !!moving,
         dodging: !!dodging, kills, cdSkill: cdS / 100, cdDodge: cdD / 100, inv: !!inv, seq, rcv: now });
       if (id === G.me && seq > L.seq) { L.x = x; L.y = y; L.seq = seq; }
     }
@@ -230,9 +239,10 @@
     for (const a of s.f) {
       const f = G.foes[a[0]];
       if (!f) continue;
-      if (!a[1]) { f.dead = true; continue; }
-      if (f.dead) { f.x = a[2]; f.y = a[3]; }
-      f.dead = false; f.sx = a[2]; f.sy = a[3]; f.hp = a[4]; f.state = V.FOE_STATES[a[5]]; f.face = a[6]; f.flags = a[7]; f.t = a[8] / 100; f.label = !!a[9];
+      if (a[1] === 0) { f.dead = true; continue; }
+      if (a[1] === 2) { f.far = true; continue; } // out of view: hidden until it comes back
+      if (f.dead || f.far) { f.x = a[2]; f.y = a[3]; }
+      f.dead = false; f.far = false; target(f, a[2], a[3]); f.hp = a[4]; f.state = V.FOE_STATES[a[5]]; f.face = a[6]; f.flags = a[7]; f.t = a[8] / 100; f.label = !!a[9];
     }
     const shots = new Map();
     for (const a of s.s) shots.set(a[0], { id: a[0], sx: a[1], sy: a[2], h: a[3], vx: a[4], vy: a[5], color: a[6], size: a[7], trail: a[8], rcv: now, x: a[1], y: a[2] });
@@ -240,14 +250,16 @@
     const mins = new Map();
     for (const a of s.m) {
       const old = G.minions.get(a[0]);
-      mins.set(a[0], { id: a[0], owner: a[1], x: old ? old.x : a[2], y: old ? old.y : a[3], sx: a[2], sy: a[3], face: a[4], rise: a[5] / 100, atk: !!a[6], low: !!a[7], moving: !!a[8],
-        anim: old ? old.anim : Math.random(), flash: old ? old.flash : 0, rcv: now });
+      const m = { id: a[0], owner: a[1], x: old ? old.x : a[2], y: old ? old.y : a[3], face: a[4], rise: a[5] / 100, atk: !!a[6], low: !!a[7], moving: !!a[8],
+        anim: old ? old.anim : Math.random(), flash: old ? old.flash : 0, rcv: now };
+      target(m, a[2], a[3]);
+      mins.set(a[0], m);
     }
     G.minions = mins;
     const fields = new Map();
     for (const a of s.d) {
       const kind = V.FIELD_KINDS[a[1]], old = G.fields.get(a[0]);
-      fields.set(a[0], { id: a[0], kind, x: a[2], y: a[3], r: a[4], t0: a[5] / 100, life: a[6] / 100, rcv: now, seed: a[7], pts: old ? old.pts : (kind === 'bloom' ? V.bloomPoints(a[7]) : null) });
+      fields.set(a[0], { id: a[0], kind, x: a[2], y: a[3], r: a[4], t0: a[5] / 100, t: a[5] / 100, life: a[6] / 100, rcv: now, seed: a[7], pts: old ? old.pts : (kind === 'bloom' ? V.bloomPoints(a[7]) : null) });
     }
     G.fields = fields;
     if (s.e) for (const e of s.e) fx(e);
@@ -381,7 +393,7 @@
     const mwx = mouse.x + G.cam.x, mwy = mouse.y + G.cam.y;
     let tgt = null, best = 1e9;
     for (const f of G.foes) {
-      if (f.dead) continue;
+      if (f.dead || f.far) continue;
       if (Math.abs(mwx - f.x) < f.def.r + 10 && mwy > f.y - f.def.h - 10 && mwy < f.y + 10) {
         const d = Math.hypot(mwx - f.x, mwy - (f.y - f.def.h / 2));
         if (d < best) { best = d; tgt = f; }
@@ -394,26 +406,23 @@
 
   // smoothing and local-only visuals between snapshots
   function updateClientState(dt) {
-    const k = 1 - Math.pow(0.0008, dt);
     for (const p of G.players.values()) {
       if (p.id === G.me) continue;
-      if (Math.hypot(p.sx - p.x, p.sy - p.y) > 200) { p.x = p.sx; p.y = p.sy; }
-      p.x += (p.sx - p.x) * k; p.y += (p.sy - p.y) * k;
+      glide(p, dt, 220);
       p.animT += dt;
       if (p.dodging && !p.dead) { p.ghostT -= dt; if (p.ghostT <= 0) { p.ghostT = 0.04; G.ghosts.push({ x: p.x, y: p.y, cls: p.cls, anim: 'run', row: p.row, f: frameOf('run', p.animT * 1.6, p.cls), t: 0, life: 0.22 }); } }
     }
     for (const f of G.foes) {
       f.flash -= dt; f.anim += dt;
-      if (f.dead) continue;
-      if (Math.hypot(f.sx - f.x, f.sy - f.y) > 160) { f.x = f.sx; f.y = f.sy; }
-      f.x += (f.sx - f.x) * k; f.y += (f.sy - f.y) * k;
+      if (f.dead || f.far) continue;
+      glide(f, dt, 180);
     }
     for (const s of G.shots.values()) {
       const age = G.t - s.rcv; s.x = s.sx + s.vx * age; s.y = s.sy + s.vy * age;
       for (let i = 0; i < (s.trail || 1); i++) part({ x: s.x - s.vx * dt * i / 2, y: s.y - s.vy * dt * i / 2, z: s.h, life: 0.2, max: 0.2, color: s.color });
     }
     for (const m of G.minions.values()) {
-      m.x += (m.sx - m.x) * k; m.y += (m.sy - m.y) * k; m.anim += dt; m.flash -= dt;
+      glide(m, dt, 180); m.anim += dt; m.flash -= dt;
       m.rise = Math.max(0, m.rise - dt);
       if (Math.random() < dt * 3) part({ x: m.x + rnd(-4, 4), y: m.y, z: rnd(30, 40), vz: 12, life: 0.5, max: 0.5, color: '#7dffc8' });
     }
@@ -622,7 +631,7 @@
       addLight(r.x - cx, r.y - cy, rad * 1.1, r.color, 0.7 * (1 - k));
     }
     for (const f of G.foes) {
-      if (f.dead || f.state !== 'windup' || f.type !== 'warden') continue;
+      if (f.dead || f.far || f.state !== 'windup' || f.type !== 'warden') continue;
       const k = clamp(1 - f.t / f.def.windup, 0, 1), x = Math.round(f.x - cx), y = Math.round(f.y - cy);
       ctx.fillStyle = `rgba(255,90,40,${0.12 + 0.18 * k})`;
       ctx.beginPath(); ctx.ellipse(x, y, f.def.slam * k, f.def.slam * k / 2, 0, 0, Math.PI * 2); ctx.fill();
@@ -642,7 +651,7 @@
       if (px + spr.c.width < 0 || px - spr.c.width > W || py - spr.c.height > H || py + 30 < 0) continue;
       list.push({ y: p.y, k: 0, o: p });
     }
-    for (const f of G.foes) if (!f.dead) list.push({ y: f.y, k: 1, o: f });
+    for (const f of G.foes) if (!f.dead && !f.far) list.push({ y: f.y, k: 1, o: f });
     for (const p of G.players.values()) if (!p.dead) list.push({ y: p.id === G.me ? L.y : p.y, k: 2, o: p });
     for (const s of G.shots.values()) list.push({ y: s.y, k: 3, o: s });
     for (const g of G.ghosts) if (g.t >= 0) list.push({ y: g.y - 0.1, k: 4, o: g });
@@ -732,7 +741,7 @@
 
     ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
     for (const f of G.foes) {
-      if (f.dead) continue;
+      if (f.dead || f.far) continue;
       const x = Math.round(f.x - cx), y = Math.round(f.y - cy - f.def.h - 10);
       if (x < -40 || x > W + 40 || y < -20 || y > H + 30) continue;
       if (f.flags & 1) drawVines(f, cx, cy);
@@ -864,7 +873,7 @@
     mctx.clearRect(0, 0, mini.width, mini.height);
     mctx.drawImage(G.mini, 0, 0);
     const dot = (x, y, c, s = 2) => { const [tx, ty] = V.toTile(x, y); mctx.fillStyle = c; mctx.fillRect(Math.round(tx - ty + V.N - s / 2), Math.round((tx + ty) / 2 - s / 2), s, s); };
-    for (const f of G.foes) if (!f.dead && f.type !== 'dummy') dot(f.x, f.y, f.type === 'warden' ? '#ffb02e' : '#e0464e', f.type === 'warden' ? 3 : 1);
+    for (const f of G.foes) if (!f.dead && !f.far && f.type !== 'dummy') dot(f.x, f.y, f.type === 'warden' ? '#ffb02e' : '#e0464e', f.type === 'warden' ? 3 : 1);
     for (const m of G.minions.values()) dot(m.x, m.y, '#7dffc8', 1);
     for (const p of G.players.values()) if (p.id !== G.me && !p.dead) dot(p.x, p.y, glow(p.cls), 2);
     dot(L.x, L.y, '#ffffff', 3); dot(L.x, L.y, glow(L.cls), 1);
@@ -936,6 +945,7 @@
     const w = link.welcome;
     G.me = w.id;
     G.players = new Map(); G.shots = new Map(); G.minions = new Map(); G.fields = new Map();
+    G.snapDt = mode === 'online' ? 0.1 : 0.016; G.lastSnap = 0;
     G.parts = []; G.rings = []; G.texts = []; G.ghosts = []; G.decals = [];
     G.foes = w.foes.map(([fid, type, hx, hy]) => ({ id: fid, type, def: FOES[type], x: hx, y: hy, sx: hx, sy: hy, hx, hy, hp: FOES[type].hp,
       state: 'idle', face: 1, flags: 0, t: 0, anim: Math.random() * 3, flash: 0, dead: false, label: false }));

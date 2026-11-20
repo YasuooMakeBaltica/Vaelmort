@@ -14,7 +14,8 @@ require(path.join(ROOT, 'src/sim.js'));
 const V = globalThis.V;
 
 const PORT = +process.env.PORT || 8080;
-const TICK = 0.05; // 20 updates per second
+const TICK = 0.05; // 20 simulation steps per second
+const SEND_EVERY = 2; // 10 network updates per second
 const MAX_PLAYERS = +process.env.MAX_PLAYERS || 64;
 const NAME_RE = /^[A-Za-z0-9_]{3,16}$/;
 
@@ -41,7 +42,11 @@ const server = http.createServer((req, res) => {
 });
 
 // ---------- sockets ----------
-const wss = new WebSocketServer({ server, path: '/ws', maxPayload: 4096 });
+const wss = new WebSocketServer({
+  server, path: '/ws', maxPayload: 4096,
+  // compress messages; level 1 is fast enough for the free 0.1 CPU and still shrinks the JSON several times
+  perMessageDeflate: { threshold: 128, zlibDeflateOptions: { level: 1, memLevel: 7 } },
+});
 const clients = new Map(); // ws -> { acct, pid, chatT, authTries }
 let nextPid = 1;
 const send = (ws, m) => { if (ws.readyState === 1) ws.send(typeof m === 'string' ? m : JSON.stringify(m)); };
@@ -91,7 +96,7 @@ async function saveAccount(c) {
 }
 
 wss.on('connection', (ws) => {
-  const c = { acct: null, pid: 0, chatT: 0, authTries: 0, msgs: 0 };
+  const c = { acct: null, pid: 0, chatT: 0, authTries: 0, msgs: 0, foeCache: new Map() };
   clients.set(ws, c);
   ws.on('message', (raw) => {
     if (++c.msgs > 80) return; // flood guard, reset every second
@@ -121,13 +126,22 @@ wss.on('connection', (ws) => {
 
 setInterval(() => { for (const c of clients.values()) c.msgs = 0; }, 1000);
 setInterval(() => { for (const c of clients.values()) saveAccount(c); }, 30000);
-let last = Date.now();
+// The world runs at 20 ticks a second; each player gets a view of what is near them every SEND_EVERY ticks.
+let last = Date.now(), tick = 0, pending = [];
 setInterval(() => {
   const now = Date.now(), dt = Math.min(0.1, (now - last) / 1000); last = now;
   sim.step(dt);
-  const snap = sim.snapshot();
-  snap.t = 's'; snap.n = sim.players.size; snap.e = sim.drainEvents();
-  if (sim.players.size) broadcast(snap);
+  pending.push(...sim.drainEvents());
+  if (++tick % SEND_EVERY) return;
+  const events = pending; pending = [];
+  const n = sim.players.size;
+  for (const [ws, c] of clients) {
+    if (!c.pid) continue;
+    const v = sim.view(c.pid, c.foeCache, events);
+    if (!v) continue;
+    v.t = 's'; v.n = n;
+    send(ws, v);
+  }
 }, TICK * 1000);
 
 store.init().then(() => {
