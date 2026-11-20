@@ -1597,7 +1597,6 @@
       row.appendChild(btns); pl.appendChild(row);
     }
     { const who = $('giveWho'), keep = who.value; who.innerHTML = '<option value="">Yourself</option>' + m.players.map((p) => `<option value="${p.pid}">${esc(p.name)} (Lv ${p.level})</option>`).join(''); who.value = keep; }
-    if (!$('giveSlot').options.length) { $('giveSlot').innerHTML = V.SLOT_NAME.map((n, i) => `<option value="${i}">${n}</option>`).join(''); $('giveRarity').innerHTML = V.RARITY.map((r, i) => `<option value="${i}">${r.name}</option>`).join(''); $('giveRarity').value = '4'; }
     const sel = $('adminFoe');
     if (!sel.options.length) for (const k of m.foes) { const o = document.createElement('option'); o.value = k; o.textContent = FOES[k].name + (FOES[k].boss ? ' (boss)' : ''); sel.appendChild(o); }
     const list = (el, names, op, label) => { el.innerHTML = ''; for (const n of names) { const r = document.createElement('div'); r.className = 'arow'; r.innerHTML = `<b>${esc(n)}</b>`; const b = document.createElement('button'); b.type = 'button'; b.className = 'btn secondary sm'; b.textContent = label; b.addEventListener('click', () => G.link.admin(op, { name: n })); r.appendChild(b); el.appendChild(r); } if (!names.length) el.innerHTML = '<p class="fine">None.</p>'; };
@@ -1608,6 +1607,10 @@
   $('adminAnnounce').addEventListener('click', () => { const v = $('adminText').value.trim(); if (v && G.link) { G.link.admin('announce', { text: v }); $('adminText').value = ''; } });
   $('adminAdd').addEventListener('click', () => { const v = $('adminName').value.trim(); if (v && G.link) { G.link.admin('admin', { name: v }); $('adminName').value = ''; } });
   $('adminBan').addEventListener('click', async () => { const v = $('adminName').value.trim(); if (v && G.link && await ask(`Ban ${v}?`, 'They will be kicked and cannot sign in until unbanned.', 'Ban', null, true)) { G.link.admin('ban', { name: v }); $('adminName').value = ''; } });
+  // the give-item lists never depend on the server, so fill them right away
+  $('giveSlot').innerHTML = V.SLOT_NAME.map((n, i) => `<option value="${i}">${n}</option>`).join('');
+  $('giveRarity').innerHTML = V.RARITY.map((r, i) => `<option value="${i}"${i === 4 ? ' selected' : ''}>${r.name}</option>`).join('');
+  $('giveWho').innerHTML = '<option value="">Yourself</option>';
   $('giveBtn').addEventListener('click', () => {
     if (!G.link) return; const who = $('giveWho').value;
     G.link.admin('give', { pid: who ? +who : undefined, slot: +$('giveSlot').value, rarity: +$('giveRarity').value, level: +$('giveLevel').value || L.level, name: $('giveName').value.trim() });
