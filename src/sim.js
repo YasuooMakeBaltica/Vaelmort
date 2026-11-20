@@ -124,6 +124,26 @@
       emit({ e: 'talents', id: pid, tal: p.talents });
       return true;
     };
+    // ---------- admin tools ----------
+    S.giveXp = (pid, n) => { const p = S.players.get(pid); if (p) grantXp(p, n); };
+    S.teleport = (pid, x, y) => {
+      const p = S.players.get(pid); if (!p) return;
+      const [tx, ty] = C.solidAt(x, y, 10) ? [x - 30, y - 10] : [x, y];
+      p.x = tx; p.y = ty; correct(p);
+    };
+    let spawned = 0;
+    S.spawnFoes = (type, n, x, y, level) => {
+      let made = 0;
+      for (let i = 0; i < n && spawned < 400; i++) {
+        const a = Math.random() * Math.PI * 2, d = 60 + Math.random() * 60;
+        let fx = x + Math.cos(a) * d, fy = y + Math.sin(a) * d * 0.5;
+        if (C.solidAt(fx, fy, 14)) { fx = x; fy = y - 40; }
+        const f = makeFoe(type, fx, fy, level, false, Math.max(0, zoneAt(fx, fy)));
+        f.isAdd = true; f.id = S.foes.length; S.foes.push(f); spawned++; made++;
+        emit({ e: 'foeadd', row: [f.id, f.type, r1(f.hx), r1(f.hy), f.level, 0, f.maxHp] });
+      }
+      return made;
+    };
     // arrange the action bar (allowed anywhere)
     S.setBar = function (pid, bar) {
       const p = S.players.get(pid);
@@ -200,7 +220,7 @@
         if (p.banner) m *= 1.4;
         if (p.buffs.avatar > 0) m *= 1.5;
         if (p.buffs.ambush > 0 && !o.minion && !o.dot) { m *= 1.8; p.buffs.ambush = 0; }
-        if (f.def.magic && !o.minion) m *= (p.cls === 'hunter' ? 1.3 : 1) * (1 + p.mods.magicDmg);
+        if (f.def.magic && !o.minion) m *= (p.cls === 'hunter' || p.cls === 'lightborn' ? 1.3 : 1) * (1 + p.mods.magicDmg);
         if (f.hp < f.maxHp * 0.3) m *= 1 + p.mods.execute;
       }
       m *= (f.exposed > 0 ? 1.25 : 1) * (f.marked > 0 ? 1.3 : 1) * (f.plagued > 0 ? 1.15 : 1);
@@ -305,6 +325,7 @@
       if (sk === 'doomfall' && fl.has('doomsayer')) cd *= 0.6;
       if (sk === 'purge' && fl.has('inquisitor')) cd *= 0.5;
       if (sk === 'bloom' && fl.has('treeOfLife')) cd *= 0.5;
+      if (sk === 'dawnbreak' && fl.has('sunrise')) cd *= 0.6;
       return Math.max(0.5, cd);
     }
     function aimPoint(p, max) {
@@ -538,6 +559,36 @@
         p.buffs.barkskin = 6 + skillMod(p, 'barkskin', 'dur');
         emit({ e: 'buff', id: p.id, b: 'barkskin' });
       },
+      // ---- Lightborn (admin class) ----
+      smite(p) {
+        startAttack(p, true);
+        const [x, y] = aimPoint(p, 280), hit = () => aoe(p, x, y, 105, 90, 90, { skill: 'smite', color: '#ffe08a' }, (f) => { f.stun = Math.max(f.stun, f.def.boss ? 0.3 : 0.8); });
+        hit(); emit({ e: 'fx', k: 'smite', id: p.id, x: r1(x), y: r1(y) });
+        if (p.mods.flags.has('noon')) later(0.45, () => { if (p.dead <= 0) { hit(); emit({ e: 'fx', k: 'smite', id: p.id, x: r1(x), y: r1(y) }); } });
+      },
+      sunbeam(p) {
+        startAttack(p, true);
+        const a = p.aim.a, x1 = p.x + Math.cos(a) * 420, y1 = p.y + Math.sin(a) * 210;
+        segmentHits(p.x, p.y, x1, y1, 30, (f) => { heroDamage(p, f, 75, { skill: 'sunbeam', a, kb: 60, color: '#fff3c4' }); f.marked = 5; });
+        emit({ e: 'fx', k: 'beam', id: p.id, x: r1(p.x), y: r1(p.y), x1: r1(x1), y1: r1(y1) });
+      },
+      blink(p) {
+        const x0 = p.x, y0 = p.y, [tx, ty] = aimPoint(p, 260), [ex, ey] = moveTo(p, tx, ty, 0.08, 'step');
+        aoe(p, ex, ey, 90, 30, 80, { skill: 'blink', color: '#fff3c4' }, (f) => { f.blind = Math.max(f.blind || 0, 2); });
+        emit({ e: 'fx', k: 'blink', id: p.id, x: r1(x0), y: r1(y0), x1: r1(ex), y1: r1(ey) });
+      },
+      sanctuary(p) {
+        const pow = 1 + p.mods.healPow;
+        for (const q of S.players.values()) if (q.dead <= 0 && gdist(p.x, p.y, q.x, q.y) < 230) { q.hp = Math.min(q.maxHp, q.hp + q.maxHp * 0.4 * pow); q.buffs.rally = 4; q.rallyRate = q.maxHp * 0.05 * pow; }
+        emit({ e: 'fx', k: 'sanctuary', id: p.id, x: r1(p.x), y: r1(p.y) });
+      },
+      dawnbreak(p) {
+        startAttack(p, true);
+        p.inv = Math.max(p.inv, 0.8);
+        aoe(p, p.x, p.y, 270, 240, 220, { skill: 'dawnbreak', color: '#ffffff' }, (f) => { f.stun = Math.max(f.stun, f.def.boss ? 0.5 : 2); f.marked = 6; });
+        for (const q of S.players.values()) if (q.dead <= 0 && gdist(p.x, p.y, q.x, q.y) < 270) q.hp = Math.min(q.maxHp, q.hp + q.maxHp * 0.3);
+        emit({ e: 'fx', k: 'dawn', id: p.id, x: r1(p.x), y: r1(p.y) });
+      },
       storm(p) {
         const [x, y] = aimPoint(p, 240);
         fieldAdd({ kind: 'storm', x, y, r: 170, life: 6 + skillMod(p, 'storm', 'dur'), owner: p.id, follow: p.mods.flags.has('eyeStorm') });
@@ -595,9 +646,9 @@
       if (p.dead > 0) { p.dead -= dt; p.skillReq = 0; if (p.dead <= 0) respawn(p); return; }
       p.zone = zoneAt(p.x, p.y);
       const rs = res(p);
-      if (rs.regen) p.res = Math.min(p.resMax, p.res + rs.regen * (1 + p.mods.resGen) * dt);
+      if (rs.regen) p.res = Math.min(p.resMax, p.res + rs.regen * (1 + p.mods.resGen) * (p.cls === 'lightborn' ? 2 : 1) * dt);
       else if (S.t - p.lastCombat > 5) p.res = Math.max(0, p.res - 5 * dt);
-      if (p.lastHit > 4) p.hp = Math.min(p.maxHp, p.hp + p.maxHp * (p.cls === 'druid' ? 0.1 : 0.05) * dt);
+      if (p.lastHit > 4) p.hp = Math.min(p.maxHp, p.hp + p.maxHp * (p.cls === 'druid' || p.cls === 'lightborn' ? 0.1 : 0.05) * dt);
       if (p.buffs.rally > 0) p.hp = Math.min(p.maxHp, p.hp + (p.rallyRate || 0) * dt);
       if (p.channel) {
         p.channel.t -= dt; p.channel.tick -= dt;
@@ -1029,7 +1080,7 @@
         e: events.filter((e) => {
           if (e.id === pid) return true;
           if (PRIVATE.has(e.e)) return false;
-          if (e.e === 'join' || e.e === 'leave' || e.e === 'levelup') return true;
+          if (e.e === 'join' || e.e === 'leave' || e.e === 'levelup' || e.e === 'foeadd') return true;
           const pos = eventPos(e);
           return !pos || near(pos[0], pos[1], 120) || (e.x0 !== undefined && near(e.x0, e.y0, 120));
         }),

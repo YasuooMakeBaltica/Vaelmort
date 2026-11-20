@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="vaelmort-server" content="wss://vaelmort.onrender.com/ws">
+<meta name="robots" content="noindex">
+<title>Vaelmort Admin</title>
+<style>
+  :root { --bg: #07060c; --panel: #120f1a; --edge: #2c2638; --ink: #ece6d8; --muted: #9a93a6; --gold: #e2c781; --bad: #ff8f8f; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, sans-serif; }
+  main { width: min(900px, 100%); margin: 0 auto; padding: 20px 16px 40px; display: grid; gap: 14px; }
+  h1 { margin: 0; font: 800 24px Georgia, serif; letter-spacing: .14em; text-transform: uppercase; color: var(--gold); }
+  h2 { margin: 0 0 8px; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--gold); }
+  section { padding: 14px; background: var(--panel); border: 1px solid var(--edge); border-radius: 4px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  input, select { min-width: 0; flex: 1; padding: 8px 9px; font: inherit; color: var(--ink); background: #0d0b13; border: 1px solid #3a3448; border-radius: 3px; }
+  input[type=number] { flex: 0 0 72px; }
+  button { padding: 8px 12px; font: 700 12px system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; color: var(--ink); background: #1a1622; border: 1px solid #4a4358; border-radius: 3px; cursor: pointer; }
+  button.primary { color: #140e05; background: linear-gradient(#f0d89a, #c9a24e); border-color: #5a4214; }
+  button.danger { color: #ffb3b3; background: #2a1216; border-color: #6a2a30; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 7px 6px; text-align: left; border-bottom: 1px solid var(--edge); vertical-align: middle; }
+  th { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+  td .row { gap: 4px; } td button { padding: 5px 8px; font-size: 10px; }
+  .muted { color: var(--muted); } #msg { min-height: 1.4em; margin: 0; } #msg.err { color: var(--bad); }
+  .list { display: flex; flex-wrap: wrap; gap: 6px; } .list span { display: inline-flex; gap: 6px; align-items: center; padding: 4px 4px 4px 9px; background: #0d0b13; border: 1px solid var(--edge); border-radius: 3px; }
+  [hidden] { display: none !important; }
+  @media (max-width: 640px) { th:nth-child(3), td:nth-child(3) { display: none; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Vaelmort Admin</h1>
+  <p id="msg" role="status"></p>
+  <section id="login">
+    <h2>Sign in with an admin account</h2>
+    <form class="row" id="loginForm">
+      <input id="name" autocomplete="username" placeholder="Account" maxlength="16">
+      <input id="pass" type="password" autocomplete="current-password" placeholder="Password" maxlength="128">
+      <button class="primary" type="submit">Sign in</button>
+    </form>
+  </section>
+  <div id="panel" hidden style="display:grid;gap:14px">
+    <section>
+      <div class="row" style="justify-content:space-between"><h2>Online now <span class="muted" id="count"></span></h2><button type="button" id="refresh">Refresh</button></div>
+      <table><thead><tr><th>Character</th><th>Level</th><th>Account · zone</th><th></th></tr></thead><tbody id="players"></tbody></table>
+    </section>
+    <section>
+      <h2>Spawn enemies next to a player</h2>
+      <div class="row"><select id="who"></select><select id="foe"></select><input id="n" type="number" min="1" max="20" value="3" aria-label="How many"><input id="lv" type="number" min="1" max="35" placeholder="Lv" aria-label="Level"><button class="primary" type="button" id="spawn">Spawn</button></div>
+    </section>
+    <section>
+      <h2>Announcement</h2>
+      <div class="row"><input id="text" maxlength="200" placeholder="Message to everyone online"><button class="primary" type="button" id="announce">Send</button></div>
+    </section>
+    <section>
+      <h2>Accounts</h2>
+      <div class="row"><input id="acct" maxlength="16" placeholder="Account name"><button type="button" id="addAdmin">Make admin</button><button class="danger" type="button" id="ban">Ban</button></div>
+      <p class="muted" style="margin:12px 0 6px">Admins</p><div class="list" id="admins"></div>
+      <p class="muted" style="margin:12px 0 6px">Banned</p><div class="list" id="banned"></div>
+    </section>
+  </div>
+</main>
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const meta = document.querySelector('meta[name="vaelmort-server"]').content.trim();
+  const url = new URLSearchParams(location.search).get('server') || (meta === 'same-origin' ? (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws' : meta);
+  let ws = null, timer = 0, foesFilled = false;
+  const msg = (t, bad) => { $('msg').textContent = t; $('msg').className = bad ? 'err' : ''; };
+  const op = (o, args) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(Object.assign({ t: 'admin', op: o }, args))); };
+  function connect(auth) {
+    msg('Connecting… a sleeping server can take up to a minute to wake.');
+    ws = new WebSocket(url);
+    ws.onopen = () => ws.send(JSON.stringify(auth));
+    ws.onclose = () => { clearInterval(timer); msg('Disconnected from the server.', true); $('panel').hidden = true; $('login').hidden = false; };
+    ws.onmessage = (ev) => {
+      let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+      if (m.t === 'error') { msg(m.msg, true); return; }
+      if (m.t === 'account') {
+        if (!m.admin) { msg('That account is not an admin.', true); ws.close(); return; }
+        try { sessionStorage.setItem('vaelmortAdmin', m.token); } catch (e) { /* private mode */ }
+        msg(`Signed in as ${m.name}.`); $('login').hidden = true; $('panel').hidden = false;
+        op('list'); clearInterval(timer); timer = setInterval(() => op('list'), 5000);
+        return;
+      }
+      if (m.t === 'admin') {
+        if (m.op === 'ok' || m.op === 'error') { msg(m.msg, m.op === 'error'); return; }
+        if (m.op === 'list') render(m);
+      }
+    };
+  }
+  function render(m) {
+    $('count').textContent = `(${m.players.length})`;
+    const tb = $('players'); tb.innerHTML = '';
+    if (!m.players.length) tb.innerHTML = '<tr><td colspan="4" class="muted">Nobody is online.</td></tr>';
+    const who = $('who'), keep = who.value; who.innerHTML = '';
+    for (const p of m.players) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td><b>${esc(p.name)}</b> <span class="muted">${esc(p.cls)}</span></td><td>${p.level}</td><td>${esc(p.acct)} · ${esc(p.zone)}</td><td><div class="row"></div></td>`;
+      const r = tr.querySelector('.row');
+      const b = (label, fn, cls) => { const x = document.createElement('button'); x.type = 'button'; x.textContent = label; if (cls) x.className = cls; x.addEventListener('click', fn); r.appendChild(x); };
+      b('+XP', () => { const n = +prompt(`XP to give ${p.name}:`, '1000'); if (n > 0) op('xp', { pid: p.pid, n }); });
+      b('Kick', () => op('kick', { pid: p.pid }), 'danger');
+      b('Ban', () => { if (confirm(`Ban the account ${p.acct}?`)) op('ban', { name: p.acct }); }, 'danger');
+      tb.appendChild(tr);
+      const o = document.createElement('option'); o.value = p.pid; o.textContent = p.name; who.appendChild(o);
+    }
+    if (keep) who.value = keep;
+    if (!foesFilled) { foesFilled = true; for (const k of m.foes) { const o = document.createElement('option'); o.value = k; o.textContent = k; $('foe').appendChild(o); } }
+    const chips = (el, names, o, label) => { el.innerHTML = names.length ? '' : '<span class="muted" style="border:0;padding:0">None</span>'; for (const n of names) { const s = document.createElement('span'); s.innerHTML = esc(n); const x = document.createElement('button'); x.type = 'button'; x.textContent = label; x.addEventListener('click', () => op(o, { name: n })); s.appendChild(x); el.appendChild(s); } };
+    chips($('admins'), m.admins, 'unadmin', 'Remove'); chips($('banned'), m.banned, 'unban', 'Unban');
+  }
+  $('loginForm').addEventListener('submit', (e) => { e.preventDefault(); connect({ t: 'login', panel: 1, name: $('name').value.trim(), pass: $('pass').value }); });
+  $('refresh').addEventListener('click', () => op('list'));
+  $('spawn').addEventListener('click', () => { if (!$('who').value) { msg('Nobody online to spawn next to.', true); return; } op('spawn', { pid: +$('who').value, type: $('foe').value, n: +$('n').value || 1, level: +$('lv').value || 0 }); });
+  $('announce').addEventListener('click', () => { const t = $('text').value.trim(); if (t) { op('announce', { text: t }); $('text').value = ''; } });
+  $('addAdmin').addEventListener('click', () => { const n = $('acct').value.trim(); if (n) op('admin', { name: n }); });
+  $('ban').addEventListener('click', () => { const n = $('acct').value.trim(); if (n && confirm(`Ban the account ${n}?`)) op('ban', { name: n }); });
+  let tok = null; try { tok = sessionStorage.getItem('vaelmortAdmin'); } catch (e) { /* private mode */ }
+  if (tok) connect({ t: 'resume', panel: 1, token: tok });
+})();
+</script>
+</body>
+</html>

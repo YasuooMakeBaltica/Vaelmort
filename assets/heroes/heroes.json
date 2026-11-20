@@ -162,6 +162,30 @@
           "loop": false
         }
       }
+    },
+    "lightborn": {
+      "name": "Lightborn",
+      "glow": "#ffd86a",
+      "animations": {
+        "idle": {
+          "file": "sheets/lightborn_idle.png",
+          "frames": 8,
+          "fps": 8,
+          "loop": true
+        },
+        "run": {
+          "file": "sheets/lightborn_run.png",
+          "frames": 8,
+          "fps": 12,
+          "loop": true
+        },
+        "attack": {
+          "file": "sheets/lightborn_attack.png",
+          "frames": 8,
+          "fps": 12,
+          "loop": false
+        }
+      }
     }
   }
 }

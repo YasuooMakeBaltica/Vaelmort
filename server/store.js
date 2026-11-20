@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 const SESSION_DAYS = 30;
+const ADMIN_SEED = (process.env.ADMIN_ACCOUNTS || 'yasuoo').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
 const sha = (s) => crypto.createHash('sha256').update(s).digest('hex');
 const scrypt = (pass, salt) => new Promise((ok, bad) => crypto.scrypt(pass, salt, 64, (e, k) => (e ? bad(e) : ok(k.toString('hex')))));
 
@@ -27,6 +28,8 @@ function jsonBackend(file) {
     kind: 'json file ' + file,
     async init() {},
     async getAccount(key) { return db.accounts[key] || null; },
+    async setFlag(key, flag, on) { const a = db.accounts[key]; if (!a) return false; a[flag] = !!on; flush(); return true; },
+    async flagged(flag) { return Object.values(db.accounts).filter((a) => a[flag]).map((a) => a.name); },
     async createAccount(a) { if (db.accounts[a.key]) return false; db.accounts[a.key] = a; flush(); return true; },
     async saveProgress(key, cls, kills) { const a = db.accounts[key]; if (a) { a.cls = cls; a.kills = kills; flush(); } },
     async putSession(tokenHash, key, expires) { db.sessions[tokenHash] = { key, expires }; flush(); },
@@ -60,10 +63,22 @@ function pgBackend(url) {
         level integer not null default 1, xp integer not null default 0, kills integer not null default 0,
         talents text not null default '{}', bounties text not null default '{}', created_at timestamptz not null default now())`);
       await q('alter table characters add column if not exists bar text'); // null = from before the skill web
+      await q('alter table accounts add column if not exists admin boolean not null default false');
+      await q('alter table accounts add column if not exists banned boolean not null default false');
     },
     async getAccount(key) {
-      const r = await q('select key, name, salt, hash, cls, kills from accounts where key = $1', [key]);
+      const r = await q('select key, name, salt, hash, cls, kills, admin, banned from accounts where key = $1', [key]);
       return r.rows[0] || null;
+    },
+    async setFlag(key, flag, on) {
+      if (flag !== 'admin' && flag !== 'banned') return false;
+      const r = await q(`update accounts set ${flag} = $2 where key = $1`, [key, !!on]);
+      return r.rowCount === 1;
+    },
+    async flagged(flag) {
+      if (flag !== 'admin' && flag !== 'banned') return [];
+      const r = await q(`select name from accounts where ${flag} order by name`);
+      return r.rows.map((x) => x.name);
     },
     async createAccount(a) {
       const r = await q('insert into accounts (key, name, salt, hash, cls, kills) values ($1,$2,$3,$4,$5,$6) on conflict do nothing', [a.key, a.name, a.salt, a.hash, a.cls, a.kills]);
@@ -117,7 +132,14 @@ function createStore() {
   const b = dbUrl ? pgBackend(dbUrl) : jsonBackend(process.env.DATA_FILE || path.join(__dirname, 'data', 'store.json'));
   return {
     kind: b.kind,
-    init: () => b.init(),
+    // accounts named in ADMIN_ACCOUNTS (comma separated) are made admins when the server starts and when they log in
+    async init() {
+      await b.init();
+      for (const name of ADMIN_SEED) await b.setFlag(name.toLowerCase(), 'admin', true);
+    },
+    getAccount: (name) => b.getAccount(String(name).toLowerCase()),
+    setFlag: (name, flag, on) => b.setFlag(String(name).toLowerCase(), flag, on),
+    flagged: (flag) => b.flagged(flag),
     async register(name, pass) {
       const key = name.toLowerCase(), { salt, hash } = await hashPassword(pass);
       const ok = await b.createAccount({ key, name, salt, hash, cls: 'necromancer', kills: 0 });
@@ -126,6 +148,7 @@ function createStore() {
     async login(name, pass) {
       const a = await b.getAccount(name.toLowerCase());
       if (!a || !(await checkPassword(pass, a.salt, a.hash))) return null;
+      if (!a.admin && ADMIN_SEED.includes(a.key)) { await b.setFlag(a.key, 'admin', true); a.admin = true; }
       return a;
     },
     async newSession(key) {

@@ -45,6 +45,7 @@
     step: 'dash', fan: 'knives', smoke: 'cloud', evisc: 'dagger', deathmark: 'skull',
     volley: 'arrows', trap: 'trap', purge: 'sun', tumble: 'dash', rain: 'arrows',
     bloom: 'flower', roots: 'vine', wolves: 'paw', barkskin: 'shield', storm: 'bolt',
+    smite: 'sun', sunbeam: 'spear', blink: 'wing', sanctuary: 'heart', dawnbreak: 'star',
   };
   const MOD_ICON = { dmg: 'sword', crit: 'eye', hp: 'heart', armor: 'shield', speed: 'wing', leech: 'drop', thorns: 'spike', resGen: 'orb', execute: 'skull',
     basicRange: 'arrow', summonDmg: 'bone', summonHp: 'bone', dodgeCdr: 'wing', poison: 'drop', magicDmg: 'cross', healPow: 'leaf', cdr: 'hourglass', dur: 'hourglass', power: 'star' };

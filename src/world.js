@@ -89,7 +89,7 @@
     for (const c of camps) for (let j = Math.floor(c.ty - 4); j <= c.ty + 4; j++) for (let i = Math.floor(c.tx - 4); i <= c.tx + 4; i++) {
       const d = Math.hypot(i + 0.5 - c.tx, j + 0.5 - c.ty), k = j * N + i;
       if (d < 3.4) { solid[k] = 0; if (tiles[k] === T.WATER || tiles[k] === T.ABYSS) tiles[k] = T.DIRT; }
-      if (d < 2.3 && tiles[k] !== T.ROAD) tiles[k] = T.DIRT;
+      if (d < 2.3 && tiles[k] !== T.ROAD && tiles[k] !== T.PLAZA) tiles[k] = T.DIRT; // (the Dawn Shrine sits on the plaza)
     }
 
     const props = [];

@@ -168,6 +168,17 @@
   .dragicon { position: fixed; z-index: 60; width: 40px; height: 40px; pointer-events: none; image-rendering: pixelated; filter: drop-shadow(0 0 8px rgba(226,199,129,.7)); }
   .slot .ic canvas { display: block; width: 40px; height: 40px; image-rendering: pixelated; }
   .slot.empty { background: #0b0910; border-style: dashed; }
+  .admin { display: grid; gap: 8px; }
+  .admin h3 { margin: 6px 0 0; font: 9px var(--pixel); letter-spacing: .14em; text-transform: uppercase; color: var(--gold); }
+  .admin h4 { margin: 2px 0 0; font: 600 12px var(--body); color: var(--muted); }
+  .admin input, .admin select { min-width: 0; flex: 1; padding: 7px 8px; font: 13px var(--body); color: var(--ink); background: #0d0b13; border: 1px solid #3a3448; border-radius: 2px; }
+  .admin input[type=number] { flex: 0 0 64px; }
+  .arow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 8px; background: #110e18; border: 1px solid #2c2638; border-radius: 3px; }
+  .btn.sm { padding: 6px 10px; font-size: 10px; }
+  #announce { position: absolute; left: 50%; top: 14vh; transform: translateX(-50%); width: min(640px, 90vw); padding: 12px 18px; text-align: center; background: rgba(20,16,8,.92); border: 1px solid #ffd86a; border-radius: 4px; box-shadow: 0 0 30px rgba(255,216,106,.35); z-index: 25; }
+  #announce p { margin: 0; font: 700 17px var(--body); color: #fff3c4; }
+  #announce small { display: block; margin-top: 4px; font: 9px var(--pixel); color: var(--gold); letter-spacing: .1em; }
+  .cls.admincls { box-shadow: 0 0 0 1px #ffd86a, 0 0 18px rgba(255,216,106,.35); }
   .window.board { width: min(520px, calc(100vw - 24px)); }
   .win-head { position: sticky; top: 0; display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: linear-gradient(#1c1626, #141019); border-bottom: 1px solid var(--edge); z-index: 1; }
   .win-head h2 { margin: 0; flex: 1; font: 800 17px var(--display); letter-spacing: .12em; text-transform: uppercase; color: var(--gold); }
@@ -311,6 +322,7 @@
       </div>
     </aside>
 
+    <div id="announce" hidden><p></p><small></small></div>
     <div id="prompt" hidden><kbd>E</kbd><span id="promptText"></span></div>
     <div id="banner"><div id="zoneName"></div><div id="zoneSub"></div><div id="zoneLvl"></div></div>
     <div id="toasts" aria-live="polite"></div>
@@ -331,6 +343,7 @@
       <button type="button" id="btnChar"><kbd>C</kbd>Character</button>
       <button type="button" id="btnTalents"><kbd>N</kbd>Talents<span class="badge" id="tpBadge" hidden>0</span></button>
       <button type="button" id="btnMap"><kbd>M</kbd>Map</button>
+      <button type="button" id="btnAdmin" hidden><kbd>F8</kbd>Admin</button>
       <button type="button" id="btnMenu"><kbd>Esc</kbd>Menu</button>
     </nav>
 
@@ -350,6 +363,21 @@
     <div class="win-head"><h2>Vaelmort</h2><button class="x" type="button" data-close aria-label="Close">✕</button></div>
     <div class="win-body"><canvas id="worldmap" width="896" height="448"></canvas></div>
   </section>
+  <section class="window board" id="winAdmin" hidden aria-label="Admin panel">
+    <div class="win-head"><h2>Admin</h2><button class="btn secondary sm" type="button" id="adminRefresh">Refresh</button><button class="x" type="button" data-close aria-label="Close">✕</button></div>
+    <div class="win-body admin">
+      <p class="status" id="adminMsg" role="status"></p>
+      <h3>Online</h3><div id="adminPlayers"></div>
+      <h3>Spawn enemies next to you</h3>
+      <div class="row"><select id="adminFoe"></select><input id="adminCount" type="number" min="1" max="20" value="3" aria-label="How many"><input id="adminLevel" type="number" min="1" max="35" placeholder="Lv" aria-label="Level"><button class="btn primary sm" type="button" id="adminSpawn">Spawn</button></div>
+      <h3>Announcement</h3>
+      <div class="row"><input id="adminText" maxlength="200" placeholder="Message to everyone" aria-label="Announcement"><button class="btn primary sm" type="button" id="adminAnnounce">Send</button></div>
+      <h3>Accounts</h3>
+      <div class="row"><input id="adminName" maxlength="16" placeholder="Account name" aria-label="Account name"><button class="btn secondary sm" type="button" id="adminAdd">Make admin</button><button class="btn danger sm" type="button" id="adminBan">Ban</button></div>
+      <h4>Admins</h4><div id="adminAdmins"></div>
+      <h4>Banned</h4><div id="adminBanned"></div>
+    </div>
+  </section>
   <section class="window board" id="winBoard" hidden aria-label="Bounty board">
     <div class="win-head"><h2>Bounty Board</h2><span class="pts" id="boardPts"></span><button class="x" type="button" data-close aria-label="Close">✕</button></div>
     <div class="win-body"><div class="board-list" id="boardList"></div></div>
@@ -358,6 +386,7 @@
     <div class="win-head"><h2>Menu</h2><button class="x" type="button" data-close aria-label="Close">✕</button></div>
     <div class="win-body menu-list">
       <button class="btn secondary" type="button" data-close>Resume</button>
+      <button class="btn secondary" type="button" id="menuAdmin" hidden>Admin panel</button>
       <button class="btn secondary" type="button" id="menuChars">Character select</button>
       <button class="btn danger" type="button" id="menuLogout">Log out</button>
     </div>

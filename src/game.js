@@ -33,7 +33,7 @@
   let wantSkill = 0, wantDodge = false;
   const chatInput = $('chatInput');
   const typing = () => document.activeElement && document.activeElement.tagName === 'INPUT';
-  const WINS = ['winTalents', 'winChar', 'winMap', 'winMenu', 'winBoard'];
+  const WINS = ['winTalents', 'winChar', 'winMap', 'winMenu', 'winBoard', 'winAdmin'];
   const anyWindow = () => WINS.some((id) => !$(id).hidden);
   addEventListener('keydown', (e) => {
     if (typing() || !G.started) return;
@@ -44,6 +44,7 @@
     if (k === 'c') { toggleWindow('winChar'); return; }
     if (k === 'n') { toggleWindow('winTalents'); return; }
     if (k === 'm') { toggleWindow('winMap'); return; }
+    if (k === 'f8' && G.admin) { e.preventDefault(); toggleWindow('winAdmin'); return; }
     if (k === 'e') { if (!e.repeat) interact(); return; }
     keys.add(k);
     const i = V.SKILL_KEYS.indexOf(e.code && e.code.startsWith('Digit') ? e.code.slice(5) : k);
@@ -289,6 +290,35 @@
         else if (e.done) { toast('Bounty complete', `${e.done} · +${e.xp.toLocaleString()} XP`); chatLine(`Bounty turned in: ${e.done} (+${e.xp} XP)`, 'loot'); }
         if (!$('winBoard').hidden) renderBoard();
         break;
+      case 'foeadd': {
+        const [fid, type, hx, hy, level, elite, maxHp] = e.row;
+        G.foes[fid] = { id: fid, type, def: FOES[type], x: hx, y: hy, sx: hx, sy: hy, hx, hy, level, elite: !!elite, maxHp, hp: maxHp,
+          state: 'idle', face: 1, flags: 0, t: 0, anim: Math.random() * 3, flash: 0, dead: false, far: true, label: false, ab: 0 };
+        break;
+      }
+      case 'fx': { // Lightborn
+        const W = '#fff3c4', Gd = '#ffd86a';
+        if (e.k === 'smite') {
+          G.bolts.push({ kind: 'bolt', x: e.x, y: e.y, t: 0, life: 0.3, seed: (Math.random() * 1000) | 0 });
+          ring(e.x, e.y, 105, Gd, 0.5, 3); ring(e.x, e.y, 60, W, 0.35, 2, 0.05); burst(e.x, e.y, 30, W, 30, 160, 0.6, 2, { up: 2 });
+          if (isMe) { G.shake = 5; hitstop(0.04); } else shake(3, e.x, e.y);
+        } else if (e.k === 'beam') {
+          for (let i = 0; i <= 24; i++) { const t = i / 24, x = e.x + (e.x1 - e.x) * t, y = e.y + (e.y1 - e.y) * t; burst(x, y, CHEST, i % 3 ? W : Gd, 2, 50, 0.45, 2); }
+          G.decals.push({ kind: 'runes', x: (e.x + e.x1) / 2, y: (e.y + e.y1) / 2, r: 20, t: 0, life: 0.6, color: Gd });
+          if (isMe) G.shake = 3;
+        } else if (e.k === 'blink') {
+          burst(e.x, e.y, 24, W, 26, 120, 0.5, 2); ring(e.x1, e.y1, 90, W, 0.4, 2); burst(e.x1, e.y1, 24, Gd, 26, 140, 0.5, 2, { up: 1.5 });
+        } else if (e.k === 'sanctuary') {
+          ring(e.x, e.y, 230, Gd, 0.8, 2); ring(e.x, e.y, 160, W, 0.6, 2, 0.12); burst(e.x, e.y, 10, W, 40, 60, 1.2, 2, { up: 3, g: -20 });
+          text(e.x, e.y - 80, 'SANCTUARY', Gd, true);
+        } else if (e.k === 'dawn') {
+          for (let i = 0; i < 4; i++) ring(e.x, e.y, 90 + i * 60, i % 2 ? W : Gd, 0.5 + i * 0.12, 3, i * 0.06);
+          burst(e.x, e.y, 30, W, 80, 260, 0.9, 3, { up: 2 }); G.flash = 0.35;
+          text(e.x, e.y - 90, 'DAWNBREAK', '#ffffff', true);
+          if (isMe) { G.shake = 10; hitstop(0.08); } else shake(6, e.x, e.y);
+        }
+        break;
+      }
       case 'nope':
         if (!isMe) break;
         if (e.why === 'empty') say('No skill in that slot (N to open your skills)');
@@ -399,7 +429,10 @@
           ws.onerror = () => settle(bad, new Error('Could not reach the game server. Check your connection and try again.'));
           ws.onmessage = (ev) => {
             let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
-            if (m.t === 'account') { acc.account = m.name; saveSession({ token: m.token, name: m.name }); return; }
+            if (m.t === 'account') { acc.account = m.name; G.admin = !!m.admin; updateAdminUi(); saveSession({ token: m.token, name: m.name }); return; }
+            if (m.t === 'adminflag') { G.admin = !!m.admin; updateAdminUi(); return; }
+            if (m.t === 'admin') { adminReply(m); return; }
+            if (m.t === 'announce') { announce(m.text, m.from); return; }
             if (m.t === 'chars') { chars = m.list; if (!resolve(m) && settled && !G.started) renderChars(); settle(ok); return; }
             if (m.t === 'error') { if (resolve(m)) return; if (!settled) settle(bad, new Error(m.msg)); else if (G.started) chatLine(m.msg, 'sys'); else charsStatus(m.msg, true); return; }
             if (m.t === 'welcome') { resolve(m); return; }
@@ -444,6 +477,7 @@
           turnin(z) { send({ t: 'turnin', z }); },
           abandon(z) { send({ t: 'abandon', z }); },
           chat(textMsg) { send({ t: 'chat', text: textMsg }); },
+          admin(op, args) { send(Object.assign({ t: 'admin', op }, args)); },
           leave() { const done = waitFor(['chars']); send({ t: 'leave' }); return done; },
           close() {},
         };
@@ -1266,6 +1300,7 @@
     if (id === 'winChar') renderChar();
     if (id === 'winMap') renderWorldMap();
     if (id === 'winBoard') renderBoard();
+    if (id === 'winAdmin' && G.link && G.link.admin) G.link.admin('list');
     $(id).hidden = false; mouse.down = false; keys.clear();
   }
   function closeWindows() { for (const id of WINS) $(id).hidden = true; hideTip(); }
@@ -1278,6 +1313,44 @@
   $('respecBtn').addEventListener('click', () => { if (G.link) G.link.respec(); });
   $('menuChars').addEventListener('click', () => { closeWindows(); toCharSelect(); });
   $('menuLogout').addEventListener('click', () => { closeWindows(); logout(); });
+
+  // ---------- admin ----------
+  function updateAdminUi() { const b = $('btnAdmin'); if (b) b.hidden = !G.admin; $('menuAdmin').hidden = !G.admin; if (!G.admin && !$('winAdmin').hidden) closeWindows(); }
+  function announce(text, from) {
+    const d = $('announce'); d.querySelector('p').textContent = text; d.querySelector('small').textContent = from ? '— ' + from : '';
+    d.hidden = false; d.classList.remove('show'); void d.offsetWidth; d.classList.add('show');
+    clearTimeout(announce.t); announce.t = setTimeout(() => { d.hidden = true; }, 8000);
+    if (G.started) chatLine(`[Announcement] ${text}`, 'loot');
+  }
+  function adminReply(m) {
+    if (m.op === 'ok' || m.op === 'error') { $('adminMsg').textContent = m.msg; if (G.started) chatLine(m.msg, 'sys'); return; }
+    if (m.op !== 'list') return;
+    const pl = $('adminPlayers'); pl.innerHTML = '';
+    if (!m.players.length) pl.innerHTML = '<p class="fine">Nobody is online.</p>';
+    for (const p of m.players) {
+      const row = document.createElement('div'); row.className = 'arow';
+      row.innerHTML = `<div><b>${esc(p.name)}</b> <span class="fine">Lv ${p.level} ${esc(G.meta.heroes[p.cls].name)} · ${esc(p.acct)} · ${esc(p.zone)}</span></div>`;
+      const btns = document.createElement('div'); btns.className = 'row';
+      const mk = (label, fn, cls) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'btn ' + (cls || 'secondary') + ' sm'; b.textContent = label; b.addEventListener('click', fn); btns.appendChild(b); };
+      mk('Teleport', () => G.link.admin('tp', { pid: p.pid }));
+      mk('+XP', () => { const n = +prompt(`XP to give ${p.name}:`, '1000'); if (n > 0) G.link.admin('xp', { pid: p.pid, n }); });
+      mk('Kick', () => G.link.admin('kick', { pid: p.pid }), 'danger');
+      mk('Ban', () => { if (confirm(`Ban the account ${p.acct}?`)) G.link.admin('ban', { name: p.acct }); }, 'danger');
+      row.appendChild(btns); pl.appendChild(row);
+    }
+    const sel = $('adminFoe');
+    if (!sel.options.length) for (const k of m.foes) { const o = document.createElement('option'); o.value = k; o.textContent = FOES[k].name + (FOES[k].boss ? ' (boss)' : ''); sel.appendChild(o); }
+    const list = (el, names, op, label) => { el.innerHTML = ''; for (const n of names) { const r = document.createElement('div'); r.className = 'arow'; r.innerHTML = `<b>${esc(n)}</b>`; const b = document.createElement('button'); b.type = 'button'; b.className = 'btn secondary sm'; b.textContent = label; b.addEventListener('click', () => G.link.admin(op, { name: n })); r.appendChild(b); el.appendChild(r); } if (!names.length) el.innerHTML = '<p class="fine">None.</p>'; };
+    list($('adminAdmins'), m.admins, 'unadmin', 'Remove');
+    list($('adminBanned'), m.banned, 'unban', 'Unban');
+  }
+  $('adminSpawn').addEventListener('click', () => G.link && G.link.admin('spawn', { type: $('adminFoe').value, n: +$('adminCount').value || 1, level: +$('adminLevel').value || 0 }));
+  $('adminAnnounce').addEventListener('click', () => { const v = $('adminText').value.trim(); if (v && G.link) { G.link.admin('announce', { text: v }); $('adminText').value = ''; } });
+  $('adminAdd').addEventListener('click', () => { const v = $('adminName').value.trim(); if (v && G.link) { G.link.admin('admin', { name: v }); $('adminName').value = ''; } });
+  $('adminBan').addEventListener('click', () => { const v = $('adminName').value.trim(); if (v && G.link && confirm(`Ban the account ${v}?`)) { G.link.admin('ban', { name: v }); $('adminName').value = ''; } });
+  $('adminRefresh').addEventListener('click', () => G.link && G.link.admin('list'));
+  $('btnAdmin').addEventListener('click', () => toggleWindow('winAdmin'));
+  $('menuAdmin').addEventListener('click', () => openWindow('winAdmin'));
 
   // ---------- the skill web window ----------
   const BRANCH_COL = ['#ff9a4a', '#62b8ff', '#c584ff'], WEB_YS = 0.78; // the web is tilted like a star chart on a table
@@ -1619,8 +1692,8 @@
           <div class="row" style="grid-column: 1 / -1"><button class="btn primary" type="submit" id="createBtn">Create and enter</button>${Acc.list().length ? '<button class="btn secondary" type="button" id="cancelCreate">Cancel</button>' : ''}</div>
         </form>`;
       const grid = $('clsGrid');
-      for (const cls of ORDER) {
-        const b = document.createElement('button'); b.type = 'button'; b.className = 'cls'; b.style.setProperty('--c', glow(cls));
+      for (const cls of G.admin ? V.ALL_CLASSES : ORDER) {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'cls' + (CLASSES[cls].admin ? ' admincls' : ''); b.style.setProperty('--c', glow(cls));
         b.setAttribute('aria-pressed', String(cls === newCls));
         b.innerHTML = `<canvas width="96" height="96"></canvas><b>${esc(G.meta.heroes[cls].name)}</b><span>${esc(CLASSES[cls].role)}</span>`;
         drawPortrait(b.querySelector('canvas'), cls, 0, true);
@@ -1743,7 +1816,7 @@
     if (!res.ok) throw new Error('Could not load hero data (' + res.status + ')');
     G.meta = await res.json();
     const jobs = [];
-    for (const cid of ORDER) {
+    for (const cid of V.ALL_CLASSES) {
       G.sheets[cid] = {};
       for (const [anim, a] of Object.entries(G.meta.heroes[cid].animations)) {
         jobs.push(new Promise((ok, bad) => { const im = new Image(); im.onload = () => ok(); im.onerror = () => bad(new Error('Missing sprite sheet ' + a.file)); im.src = ASSETS + a.file; G.sheets[cid][anim] = im; }));

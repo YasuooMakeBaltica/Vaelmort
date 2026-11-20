@@ -1,7 +1,7 @@
 // Renders 8-direction sprite sheets in Node: rows = directions, cols = frames. Usage: node render_sheets.js hero1,hero2 [anim]
 const fs = require('fs'), zlib = require('zlib');
 globalThis.H = {};
-for (const f of ['render.js', 'heroes.js', 'rig.js', 'heroes2.js', 'anims.js']) require(__dirname + '/' + f);
+for (const f of ['render.js', 'heroes.js', 'rig.js', 'heroes2.js', 'anims.js', 'lightborn.js']) require(__dirname + '/' + f);
 const FW = 96, FH = 96;
 // HERO_SCALE shrinks or grows the heroes inside the 96x96 frame; the feet stay on the anchor (48, 77).
 const SCALE = +process.env.HERO_SCALE || 1, PPU = 1.1 * SCALE, CY = 50 + 28 * Math.cos(Math.PI / 6) * (1.1 - PPU);

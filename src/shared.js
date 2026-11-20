@@ -57,7 +57,14 @@
       passive: 'Verdant: regenerates health twice as fast.',
       basic: { name: 'Thorn Seed', kind: 'shot', dmg: 21, speed: 300, range: 250, hits: [4], size: 3 },
       skills: ['bloom', 'roots', 'wolves', 'barkskin', 'storm'] },
+    // admin only: a being of light in a world of darkness
+    lightborn: { role: 'Radiant', res: 'mana', hp: 320, speed: 152, armor: 0.15, admin: true,
+      blurb: 'A rare being of pure light. Smites the dark from afar and heals everyone near.',
+      passive: 'Radiance: regenerates health and mana quickly; +30% damage to magical enemies.',
+      basic: { name: 'Radiant Lance', kind: 'shot', dmg: 42, speed: 560, range: 320, hits: [4], size: 3, pierce: 2 },
+      skills: ['smite', 'sunbeam', 'blink', 'sanctuary', 'dawnbreak'] },
   };
+  V.ALL_CLASSES = V.ORDER.concat(['lightborn']);
 
   // ---------- skills (slot 1-4 + ultimate) ----------
   V.SKILLS = {
@@ -96,6 +103,11 @@
     roots: { name: 'Entangling Roots', lvl: 3, cd: 8, cost: 20, desc: 'A seed that roots its target for 3s and spreads roots to enemies nearby.' },
     wolves: { name: 'Spirit Wolves', lvl: 6, cd: 14, cost: 35, desc: 'Call two spirit wolves to fight for you for 10s.' },
     barkskin: { name: 'Barkskin', lvl: 10, cd: 18, cost: 20, desc: 'Take 40% less damage for 6s and hurt anything that strikes you.' },
+    smite: { name: 'Smite', lvl: 1, cd: 4, cost: 15, desc: 'Call a pillar of light down on a spot for 90 damage, stunning the enemies there.' },
+    sunbeam: { name: 'Sunbeam', lvl: 1, cd: 6, cost: 20, desc: 'Fire a beam of sunlight that burns every enemy in a long line for 75 damage and marks them.' },
+    blink: { name: 'Blink', lvl: 1, cd: 5, cost: 10, desc: 'Vanish in a flash and reappear at the cursor, blinding enemies where you land.' },
+    sanctuary: { name: 'Sanctuary', lvl: 1, cd: 14, cost: 30, desc: 'Heal yourself and allies nearby for 40% of their health, then more over 4s.' },
+    dawnbreak: { name: 'Dawnbreak', lvl: 1, cd: 40, cost: 50, ult: true, desc: 'Become the dawn: a blinding nova for 240 damage that stuns everything around you and heals allies.' },
     storm: { name: 'Storm of the Grove', lvl: 15, cd: 55, cost: 60, ult: true, desc: 'Call a storm for 6s that strikes enemies in the area with lightning.' },
   };
   V.SKILL_KEYS = ['1', '2', '3', '4', '5'];
@@ -109,6 +121,7 @@
     hunter: { name: 'Inquisitor Sable', camp: 'Sable\'s Watch', at: [13, 7.5] },
     necromancer: { name: 'Morvane', camp: 'The Ossuary', at: [8.6, -12.3] },
     doomknight: { name: 'Ser Halvard', camp: 'Cinder Bastion', at: [-8.6, 12.3] },
+    lightborn: { name: 'The Dawnkeeper', camp: 'Dawn Shrine', at: [-2.5, 5] },
   };
   V.BOARD_AT = [1.2, 4];       // the bounty board in Vaelmort Gate
   V.CAMP_R = 130;              // ground px around a camp where you are safe
@@ -206,6 +219,17 @@
         T('drs3', 'Rooted Earth', 2, { 'roots.dmg': 0.25 }, 'Entangling Roots deals +25% damage per rank.'), T('drs4', 'Spark', 2, { crit: 0.03 }, '+3% critical chance per rank.'),
         T('drs5', 'Eye of the Storm', 1, { flag: 'eyeStorm' }, 'Your storm follows you and strikes twice as often.')] },
     ],
+    lightborn: [
+      { name: 'Radiance', nodes: [T('lbr1', 'Inner Sun', 3, { dmg: 0.06 }, '+6% damage per rank.'), T('lbr2', 'Searing Light', 3, { 'sunbeam.dmg': 0.2 }, 'Sunbeam deals +20% damage per rank.'),
+        T('lbr3', 'Judgement', 2, { 'smite.dmg': 0.25 }, 'Smite deals +25% damage per rank.'), T('lbr4', 'Brilliance', 2, { crit: 0.05 }, '+5% critical chance per rank.'),
+        T('lbr5', 'Noon', 1, { flag: 'noon' }, 'Smite strikes a second time a moment later.')] },
+      { name: 'Grace', nodes: [T('lbg1', 'Blessed', 3, { hp: 0.08 }, '+8% maximum health per rank.'), T('lbg2', 'Mercy', 3, { healPow: 0.15 }, 'Your healing is 15% stronger per rank.'),
+        T('lbg3', 'Halo', 2, { armor: 0.05 }, 'Take 5% less damage per rank.'), T('lbg4', 'Shining Ward', 2, { thorns: 15 }, 'Enemies that hit you take 15 damage per rank.'),
+        T('lbg5', 'Undying Light', 1, { flag: 'lastStand' }, 'Once a minute, a killing blow leaves you at 1 health and invulnerable for 2s.')] },
+      { name: 'Swiftness', nodes: [T('lbs1', 'Lightfoot', 3, { speed: 0.05 }, '+5% movement speed per rank.'), T('lbs2', 'Flicker', 3, { 'blink.cdr': 0.15 }, 'Blink cooldown -15% per rank.'),
+        T('lbs3', 'Wellspring', 2, { resGen: 0.25 }, '+25% Mana regeneration per rank.'), T('lbs4', 'Afterimage', 2, { dodgeCdr: 0.2 }, 'Dodge cooldown -20% per rank.'),
+        T('lbs5', 'Sunrise', 1, { flag: 'sunrise' }, 'Dawnbreak cooldown -40%.')] },
+    ],
   };
   // ---------- the skill web ----------
   // Each class has a star map: a free heart (which grants the first skill), three branches of skills,
@@ -215,7 +239,7 @@
   const BRIDGE_TXT = ['+4% maximum health per rank.', '+3% damage per rank.', '+2% critical chance per rank.'];
   const BRIDGE_NAME = ['Kinship', 'Convergence', 'Alignment'];
   V.WEB = {};
-  for (const cls of V.ORDER) {
+  for (const cls of V.ALL_CLASSES) {
     const sk = V.CLASSES[cls].skills, tree = V.TALENTS[cls], nodes = {}, list = [];
     const add = (n) => { n.links = n.links || []; nodes[n.id] = n; list.push(n); return n; };
     const link = (a, b) => { nodes[a].links.push(b); nodes[b].links.push(a); };
