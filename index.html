@@ -180,6 +180,11 @@
   .admin input[type=number] { flex: 0 0 64px; }
   .arow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 8px; background: #110e18; border: 1px solid #2c2638; border-radius: 3px; }
   .btn.sm { padding: 6px 10px; font-size: 10px; }
+  #starr { position: absolute; inset: 0; z-index: 40; display: grid; place-items: center; pointer-events: none; text-align: center; padding: 16px;
+    font: 800 clamp(34px, 7vw, 88px) var(--display); letter-spacing: .16em; text-transform: uppercase; color: #f6c453;
+    text-shadow: 0 0 2px #3a2400, 0 3px 0 #5a3a08, 0 0 40px rgba(255,190,60,.8); opacity: 0; }
+  #starr.show { animation: starr 8s ease-out forwards; }
+  @keyframes starr { 0% { opacity: 0; transform: scale(.7); } 8% { opacity: 1; transform: scale(1.05); } 14% { transform: scale(1); } 70% { opacity: 1; } 100% { opacity: 0; transform: scale(1.04); } }
   #announce { position: absolute; left: 50%; top: 14vh; transform: translateX(-50%); width: min(640px, 90vw); padding: 12px 18px; text-align: center; background: rgba(20,16,8,.92); border: 1px solid #ffd86a; border-radius: 4px; box-shadow: 0 0 30px rgba(255,216,106,.35); z-index: 25; }
   #announce p { margin: 0; font: 700 17px var(--body); color: #fff3c4; }
   #announce small { display: block; margin-top: 4px; font: 9px var(--pixel); color: var(--gold); letter-spacing: .1em; }
@@ -355,6 +360,7 @@
       </div>
     </aside>
 
+    <div id="starr" hidden>A starr is born</div>
     <div id="announce" hidden><p></p><small></small></div>
     <div id="prompt" hidden><kbd>E</kbd><span id="promptText"></span></div>
     <div id="banner"><div id="zoneName"></div><div id="zoneSub"></div><div id="zoneLvl"></div></div>

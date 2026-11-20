@@ -416,8 +416,8 @@
       }
       case 'nuke':
         chatLine('A starr is born', 'loot');
-        if (isMe) { G.flash = 0.8; G.shake = 18; hitstop(0.15); G.bolts.push({ kind: 'flare', x: e.x, y: e.y, t: 0, life: 2 }); text(e.x, e.y - 120, 'NUKE', '#ffffff', true); }
-        else { G.whiteout = 3.2; G.shake = 10; }
+        G.whiteout = 8; G.shake = isMe ? 18 : 10; if (isMe) hitstop(0.15); // everyone, the caster too: 2s of white, then a 6s fade
+        { const d = $('starr'); d.hidden = false; d.classList.remove('show'); void d.offsetWidth; d.classList.add('show'); clearTimeout(G.starrT); G.starrT = setTimeout(() => { d.hidden = true; }, 8000); }
         break;
       case 'trial':
         if (!isMe) break;
@@ -1141,7 +1141,7 @@
     }
     ctx.globalCompositeOperation = 'source-over';
     if (G.flash > 0) { ctx.fillStyle = `rgba(255,220,180,${G.flash})`; ctx.fillRect(0, 0, W, H); }
-    if (G.whiteout > 0) { ctx.fillStyle = `rgba(255,255,255,${Math.min(1, G.whiteout / 1.2)})`; ctx.fillRect(0, 0, W, H); } // someone's nuke: solid white, then fading
+    if (G.whiteout > 0) { ctx.fillStyle = `rgba(255,255,255,${Math.min(1, G.whiteout / 6)})`; ctx.fillRect(0, 0, W, H); } // someone's nuke: solid white, then fading
 
     ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
     const myLv = L.level;
