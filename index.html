@@ -77,10 +77,28 @@
   #minimap { display: block; width: 224px; height: 112px; image-rendering: pixelated; }
   .tracker { width: 236px; padding: 8px 10px 10px; display: grid; gap: 5px; }
   .tracker h3 { margin: 0; font: 9px var(--pixel); letter-spacing: .14em; text-transform: uppercase; color: var(--gold); }
-  #bName { font: 600 13px var(--body); }
+  #bList { display: grid; gap: 8px; }
+  .bq { display: grid; gap: 4px; }
+  .bq .bn { font: 600 13px var(--body); }
+  .bq.ready .bn { color: #ffd84a; }
   .bprog { height: 5px; background: #1d1928; border: 1px solid #05040a; }
   .bprog i { display: block; height: 100%; width: 0; background: var(--gold); transition: width .3s; }
-  #bText { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .bq .bt { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  #prompt { position: absolute; left: 50%; bottom: calc(118px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); padding: 6px 12px; font: 600 13px var(--body); color: var(--ink); background: var(--panel); border: 1px solid var(--edge-hi); border-radius: 3px; white-space: nowrap; }
+  #prompt kbd { margin-right: 6px; }
+  .win-note { margin: 0 0 12px; font-size: 13px; color: #ff9a8a; }
+  .win-note.ok { color: #9be38a; }
+  .board-list { display: grid; gap: 8px; }
+  .bounty { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; align-items: center; padding: 9px 11px; background: #110e18; border: 1px solid #2c2638; border-radius: 3px; }
+  .bounty.active { border-color: var(--edge-hi); }
+  .bounty.ready { border-color: #ffd84a; }
+  .bounty .bz { grid-column: 1; font: 9px var(--pixel); letter-spacing: .08em; text-transform: uppercase; color: var(--gold); }
+  .bounty .bz span { color: var(--muted); }
+  .bounty h4 { grid-column: 1; margin: 0; font: 700 14px var(--body); }
+  .bounty p { grid-column: 1; margin: 0; font-size: 12.5px; color: #c9c2d3; }
+  .bounty p b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .bounty .reward { grid-column: 1; font: 9px var(--pixel); color: var(--xp); }
+  .bounty .btn { grid-column: 2; grid-row: 1 / span 4; }
 
   #banner { position: absolute; left: 50%; top: 22vh; transform: translate(-50%, -6px); text-align: center; opacity: 0; transition: opacity .6s, transform .6s; width: min(640px, 90vw); }
   #banner.show { opacity: 1; transform: translate(-50%, 0); }
@@ -137,6 +155,7 @@
   .window { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(820px, calc(100vw - 24px)); max-height: calc(100vh - 40px); overflow: auto; z-index: 20;
     background: var(--panel-solid); border: 1px solid var(--edge-hi); border-radius: 4px; box-shadow: 0 20px 60px rgba(0,0,0,.6); }
   .window.small { width: min(340px, calc(100vw - 24px)); }
+  .window.board { width: min(520px, calc(100vw - 24px)); }
   .win-head { position: sticky; top: 0; display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: linear-gradient(#1c1626, #141019); border-bottom: 1px solid var(--edge); z-index: 1; }
   .win-head h2 { margin: 0; flex: 1; font: 800 17px var(--display); letter-spacing: .12em; text-transform: uppercase; color: var(--gold); }
   .win-body { padding: 14px; }
@@ -274,13 +293,12 @@
         <div class="mini-foot"><span id="coords"></span><span id="onlineCount" hidden></span></div>
       </div>
       <div class="panel tracker" id="tracker" hidden>
-        <h3>Bounty</h3>
-        <div id="bName"></div>
-        <div class="bprog"><i id="bFill"></i></div>
-        <div id="bText"></div>
+        <h3>Bounties</h3>
+        <div id="bList"></div>
       </div>
     </aside>
 
+    <div id="prompt" hidden><kbd>E</kbd><span id="promptText"></span></div>
     <div id="banner"><div id="zoneName"></div><div id="zoneSub"></div><div id="zoneLvl"></div></div>
     <div id="toasts" aria-live="polite"></div>
 
@@ -308,7 +326,7 @@
 
   <section class="window" id="winTalents" hidden aria-label="Talents">
     <div class="win-head"><h2>Talents</h2><span class="pts" id="tpText"></span><button class="btn secondary" type="button" id="respecBtn">Reset</button><button class="x" type="button" data-close aria-label="Close">✕</button></div>
-    <div class="win-body"><div class="trees" id="trees"></div></div>
+    <div class="win-body"><p class="win-note" id="talNote"></p><div class="trees" id="trees"></div></div>
   </section>
   <section class="window" id="winChar" hidden aria-label="Character">
     <div class="win-head"><h2 id="charTitle">Character</h2><button class="x" type="button" data-close aria-label="Close">✕</button></div>
@@ -317,6 +335,10 @@
   <section class="window" id="winMap" hidden aria-label="World map">
     <div class="win-head"><h2>Vaelmort</h2><button class="x" type="button" data-close aria-label="Close">✕</button></div>
     <div class="win-body"><canvas id="worldmap" width="896" height="448"></canvas></div>
+  </section>
+  <section class="window board" id="winBoard" hidden aria-label="Bounty board">
+    <div class="win-head"><h2>Bounty Board</h2><span class="pts" id="boardPts"></span><button class="x" type="button" data-close aria-label="Close">✕</button></div>
+    <div class="win-body"><div class="board-list" id="boardList"></div></div>
   </section>
   <section class="window small" id="winMenu" hidden aria-label="Menu">
     <div class="win-head"><h2>Menu</h2><button class="x" type="button" data-close aria-label="Close">✕</button></div>
@@ -351,8 +373,9 @@
       <dl class="controls">
         <div><dt><kbd>WASD</kbd></dt><dd>Move</dd></div>
         <div><dt><kbd>Mouse</kbd></dt><dd>Aim · left click attacks</dd></div>
-        <div><dt><kbd>1–4</kbd> <kbd>Q E R F</kbd></dt><dd>Skills (right click = skill 1)</dd></div>
-        <div><dt><kbd>5</kbd> <kbd>T</kbd></dt><dd>Ultimate</dd></div>
+        <div><dt><kbd>1–4</kbd></dt><dd>Skills (right click = skill 1)</dd></div>
+        <div><dt><kbd>5</kbd></dt><dd>Ultimate</dd></div>
+        <div><dt><kbd>E</kbd></dt><dd>Talk to trainers · bounty board</dd></div>
         <div><dt><kbd>Space</kbd></dt><dd>Dodge roll</dd></div>
         <div><dt><kbd>C</kbd> <kbd>N</kbd> <kbd>M</kbd></dt><dd>Character · Talents · Map</dd></div>
       </dl>

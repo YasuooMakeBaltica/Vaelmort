@@ -16,3 +16,14 @@ Output goes to `tools/sprite-gen/sheets/`; copy the PNGs into `assets/heroes/she
 - `heroes.js`, `heroes2.js` - hero models
 - `rig.js` - rig and pose helpers
 - `anims.js` - animations (`H.ANIMS.<hero>.anims`)
+
+## Enemies and props
+
+```bash
+node render_foes.js              # every enemy in H.FOE_ART -> assets/foes/ (+ foes.json)
+node render_foes.js wolf,golem   # just these
+node render_props.js             # dummy, tents, well, bounty board, lamp, brazier -> assets/props/ (+ props.json)
+```
+
+- `foes.js` - enemy and minion models and animations (`H.FOE_ART`)
+- `props.js` - static town and camp props (`H.PROP_ART`); each one is rendered once, cropped, with its ground anchor and light points in `props.json`

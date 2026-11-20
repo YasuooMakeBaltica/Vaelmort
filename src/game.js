@@ -26,8 +26,6 @@
     stepT: 0, hurt: 0, moving: false, skillEdge: 0, dodgeEdge: false };
   const glow = (cls) => G.meta.heroes[cls].glow;
   const me = () => G.players.get(G.me);
-  const NPCS = [[3.2, 0.2, 'doomknight', 'Ser Halvard'], [-0.4, 3.4, 'necromancer', 'Morvane'], [-3.4, 0.6, 'warlord', 'Gorran Ironbrow'],
-    [0.8, -3.2, 'assassin', 'Vex the Quiet'], [2.4, 2.9, 'hunter', 'Inquisitor Sable'], [-2.4, -2.6, 'druid', 'Elder Wren']];
   const ANIM_SKILLS = new Set(['hellslam', 'chain', 'raise', 'bonespear', 'plague', 'army', 'banner', 'fan', 'evisc', 'volley', 'purge', 'bloom', 'roots']);
 
   // ---------- input ----------
@@ -35,7 +33,7 @@
   let wantSkill = 0, wantDodge = false;
   const chatInput = $('chatInput');
   const typing = () => document.activeElement && document.activeElement.tagName === 'INPUT';
-  const WINS = ['winTalents', 'winChar', 'winMap', 'winMenu'];
+  const WINS = ['winTalents', 'winChar', 'winMap', 'winMenu', 'winBoard'];
   const anyWindow = () => WINS.some((id) => !$(id).hidden);
   addEventListener('keydown', (e) => {
     if (typing() || !G.started) return;
@@ -46,8 +44,9 @@
     if (k === 'c') { toggleWindow('winChar'); return; }
     if (k === 'n') { toggleWindow('winTalents'); return; }
     if (k === 'm') { toggleWindow('winMap'); return; }
+    if (k === 'e') { if (!e.repeat) interact(); return; }
     keys.add(k);
-    let i = V.SKILL_KEYS.indexOf(k); if (i < 0) i = V.SKILL_ALT.indexOf(k);
+    const i = V.SKILL_KEYS.indexOf(e.code && e.code.startsWith('Digit') ? e.code.slice(5) : k);
     if (i >= 0) wantSkill = i + 1;
     if (k === ' ' || k === 'shift') wantDodge = true;
   });
@@ -279,19 +278,26 @@
         if (isMe) {
           L.level = e.lv;
           const unlocked = CLASSES[L.cls].skills.map((s) => SKILLS[s]).filter((s) => s.lvl === e.lv);
-          toast(`Level ${e.lv}`, (unlocked.length ? `New skill: ${unlocked.map((s) => s.name).join(', ')}. ` : '') + 'A talent point is waiting (N).', true);
+          toast(`Level ${e.lv}`, (unlocked.length ? `New skill: ${unlocked.map((s) => s.name).join(', ')}. ` : '') + `A talent point is waiting. ${V.TRAINERS[L.cls].name} can train you at ${V.TRAINERS[L.cls].camp}.`, true);
           chatLine(`You reached level ${e.lv}.`, 'loot');
           G.flash = 0.2;
         } else if (G.mode === 'online') { const p = G.players.get(e.id); if (p) chatLine(`${p.name} reached level ${e.lv}.`, 'sys'); }
         break;
       case 'bounty':
-        if (isMe && e.done) { toast('Bounty complete', `${e.done} · +${e.xp.toLocaleString()} XP`); chatLine(`Bounty complete: ${e.done} (+${e.xp} XP)`, 'loot'); }
+        if (!isMe) break;
+        if (e.acc) { toast('Bounty accepted', e.acc); chatLine(`Bounty accepted: ${e.acc}.`, 'sys'); }
+        else if (e.ready) { toast('Bounty ready', `${e.ready} · return to the bounty board`); chatLine(`${e.ready} is done. Turn it in at the bounty board in Vaelmort Gate.`, 'loot'); }
+        else if (e.done) { toast('Bounty complete', `${e.done} · +${e.xp.toLocaleString()} XP`); chatLine(`Bounty turned in: ${e.done} (+${e.xp} XP)`, 'loot'); }
+        if (!$('winBoard').hidden) renderBoard();
         break;
       case 'nope':
         if (!isMe) break;
         if (e.why === 'level') say(`${SKILLS[e.sk].name} unlocks at level ${SKILLS[e.sk].lvl}`);
         else if (e.why === 'res') say(`Not enough ${RES[CLASSES[L.cls].res].name}`);
         else if (e.why === 'target') say('Hover an enemy to mark it');
+        else if (e.why === 'trainer') say(`Visit ${V.TRAINERS[L.cls].name} to train`);
+        else if (e.why === 'board') say('Walk up to the bounty board');
+        else if (e.why === 'bounties') say(`You can carry ${V.MAX_BOUNTIES} bounties at a time`);
         break;
       case 'talents': if (isMe) { G.talents = e.tal; if (!$('winTalents').hidden) renderTalents(); if (!$('winChar').hidden) renderChar(); } break;
       case 'cast': if (isMe) { const i = CLASSES[L.cls].skills.indexOf(e.sk); const el = $('slot' + (i + 1)); if (el) { el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); } } break;
@@ -434,6 +440,9 @@
           tick(dt) { G.sendT -= dt; if (G.sendT <= 0) { G.sendT = 0.05; send({ t: 'in', ...inputPacket() }); } },
           learn(node) { send({ t: 'learn', node }); },
           respec() { send({ t: 'respec' }); },
+          accept(z) { send({ t: 'accept', z }); },
+          turnin(z) { send({ t: 'turnin', z }); },
+          abandon(z) { send({ t: 'abandon', z }); },
           chat(textMsg) { send({ t: 'chat', text: textMsg }); },
           leave() { const done = waitFor(['chars']); send({ t: 'leave' }); return done; },
           close() {},
@@ -842,7 +851,7 @@
           addLight(fx_, fy, Lt[1] * (0.92 + Math.sin(G.t * 11 + o.tx) * 0.05 + Math.random() * 0.05), Lt[0], Lt[2]);
         } else if (o.type === 'obelisk') addLight(o.x - cx, o.y - cy - 70, Lt[1] * (0.9 + 0.1 * Math.sin(G.t * 1.7)), Lt[0], Lt[2]);
         else if (o.type === 'lamp') addLight(o.x - cx - s.ax + s.glow[0], o.y - cy - s.ay + s.glow[1], Lt[1] * (0.95 + Math.random() * 0.05), Lt[0], Lt[2]);
-        else if (o.type === 'board') tags.push(['Bounty Board', 0, o.x - cx, o.y - cy - 54, '#e2c781', -1]);
+        else if (o.type === 'board') { const ready = G.self && (G.self.bb || []).some((b) => b && b[2] === 2); tags.push([(ready ? '! ' : '') + 'Bounty Board', 0, o.x - cx, o.y - cy - 54, ready ? '#ffd84a' : '#e2c781', -1]); }
         else if (Lt) addLight(o.x - cx, o.y - cy - 10, Lt[1], Lt[0], Lt[2]);
       } else if (it.k === 1) drawFoe(o, cx, cy);
       else if (it.k === 2) drawPlayer(o, cx, cy, tags);
@@ -859,7 +868,8 @@
       else if (it.k === 7) {
         drawHero(o.cls, 'idle', o.row, frameOf('idle', G.t + o.phase, o.cls), o.x - cx, o.y - cy, 1, null);
         addLight(o.x - cx, o.y - cy - 22, 60, glow(o.cls), 0.5);
-        tags.push([o.name, -1, o.x - cx, o.y - cy - 64, '#9be38a', -1, o.title]);
+        const pts = o.cls === L.cls && G.self && G.self.tp > 0;
+        tags.push([(pts ? '! ' : '') + o.name, -1, o.x - cx, o.y - cy - 64, pts ? '#ffd84a' : '#9be38a', -1, o.title]);
       }
     }
 
@@ -1056,7 +1066,7 @@
   // ---------- HUD ----------
   const hud = {};
   for (const id of ['uName', 'uClass', 'uLevel', 'hpFill', 'hpText', 'resFill', 'resText', 'buffs', 'target', 'tLevel', 'tName', 'tTag', 'tFill', 'tText', 'tDebuffs',
-    'bossbar', 'bossName', 'bossFill', 'bossText', 'zoneLabel', 'zoneLvLabel', 'coords', 'onlineCount', 'tracker', 'bName', 'bFill', 'bText', 'banner', 'zoneName', 'zoneSub', 'zoneLvl',
+    'bossbar', 'bossName', 'bossFill', 'bossText', 'zoneLabel', 'zoneLvLabel', 'coords', 'onlineCount', 'tracker', 'bList', 'prompt', 'promptText', 'banner', 'zoneName', 'zoneSub', 'zoneLvl',
     'xpFill', 'xpText', 'slots', 'tpBadge', 'death', 'deathText']) hud[id] = $(id);
   let bannerTimer = 0;
   function banner(name, sub, lvl, secs = 2.8) {
@@ -1120,7 +1130,47 @@
     buildSlots();
     $('charTitle').textContent = L.name;
   }
-  let lastZoneLabel = -2;
+  let lastZoneLabel = -2, lastBounties = '', lastPrompt = '', lastAtTrainer = null;
+  // what E would do right now: your own trainer, another class's trainer, or the bounty board
+  function nearbyThing() {
+    if (!G.started) return null;
+    if (V.nearBoard(L.x, L.y)) return { kind: 'board' };
+    for (const n of G.npcs) if (V.gdist(L.x, L.y, n.x, n.y) < V.INTERACT) return { kind: 'trainer', n, own: n.cls === L.cls };
+    return null;
+  }
+  function interact() {
+    const t = nearbyThing();
+    if (!t) return;
+    if (t.kind === 'board') { toggleWindow('winBoard'); return; }
+    if (t.own) toggleWindow('winTalents');
+    else say(`${t.n.name} only trains ${G.meta.heroes[t.n.cls].name}s`);
+  }
+  function updatePrompt() {
+    const t = (G.self && !G.self.dead) ? nearbyThing() : null;
+    const txt = !t ? '' : t.kind === 'board' ? 'Bounty Board' : t.own ? `Train with ${t.n.name}` : `${t.n.name} · ${G.meta.heroes[t.n.cls].name} trainer`;
+    if (txt !== lastPrompt) { lastPrompt = txt; hud.prompt.hidden = !txt; hud.promptText.textContent = txt; }
+    const at = V.nearTrainer(L.cls, L.x, L.y);
+    if (at !== lastAtTrainer) { lastAtTrainer = at; if (!$('winTalents').hidden) renderTalents(); }
+    if (!$('winBoard').hidden && !V.nearBoard(L.x, L.y, 60)) closeWindows();
+  }
+  function renderBoard() {
+    const s = G.self; if (!s) return;
+    const bb = s.bb || [], active = bb.filter((b) => b && b[2]).length;
+    $('boardPts').textContent = `${active} / ${V.MAX_BOUNTIES} taken`;
+    const list = $('boardList'); list.innerHTML = '';
+    ZONE_INFO.forEach((zi, z) => {
+      const b = bb[z]; if (!zi.bounties || !b) return;
+      const [i, n, st] = b, cur = V.bountyOf(z, { i });
+      const row = document.createElement('div'); row.className = 'bounty' + (st === 2 ? ' ready' : st === 1 ? ' active' : '');
+      row.innerHTML = `<div class="bz">${esc(zi.name)} <span>Lv ${zi.lv[0]}–${zi.lv[1]}</span></div><h4>${esc(cur.name)}</h4>` +
+        `<p>Slay ${cur.n} ${esc(cur.types.map((t) => FOES[t].name).join(' or '))}.${st ? ` <b>${n} / ${cur.n}</b>` : ''}</p><div class="reward">+${V.bountyReward(z).toLocaleString()} XP</div>`;
+      const btn = document.createElement('button'); btn.type = 'button';
+      if (st === 2) { btn.className = 'btn primary'; btn.textContent = 'Turn in'; btn.addEventListener('click', () => G.link && G.link.turnin(z)); }
+      else if (st === 1) { btn.className = 'btn secondary'; btn.textContent = 'Abandon'; btn.addEventListener('click', () => G.link && G.link.abandon(z)); }
+      else { btn.className = 'btn primary'; btn.textContent = 'Accept'; btn.disabled = active >= V.MAX_BOUNTIES; btn.addEventListener('click', () => G.link && G.link.accept(z)); }
+      row.appendChild(btn); list.appendChild(row);
+    });
+  }
   const BUFF_NAMES = { bulwark: 'Bulwark', avatar: 'Avatar', barkskin: 'Barkskin', shield: 'Bone Armor', invis: 'Hidden', whirl: 'Whirlwind', rally: 'Rally', empowered: 'Empowered', slowed: 'Slowed' };
   const DEBUFFS = [[1, 'Rooted'], [2, 'Exposed'], [4, 'Marked'], [8, 'Stunned'], [16, 'Poisoned'], [32, 'Slowed'], [64, 'Death Mark'], [128, 'Blind'], [256, 'Plagued']];
   function updateHud() {
@@ -1152,15 +1202,23 @@
     const sd = $('slotD'); if (sd) sd.style.setProperty('--cd', (L.cdDodge / (Cl.dodgeCd || DODGE_CD)).toFixed(3));
     hud.tpBadge.hidden = !(s.tp > 0); hud.tpBadge.textContent = s.tp;
     const z = Math.max(0, G.zone), zi = ZONE_INFO[z];
-    if (lastZoneLabel !== z) { lastZoneLabel = z; hud.zoneLabel.textContent = zi.name; hud.zoneLvLabel.textContent = zi.safe ? 'Safe' : `Lv ${zi.lv[0]}–${zi.lv[1]}`; }
+    const camp = V.inCamp(L.x, L.y) ? G.npcs.find((n) => V.gdist(L.x, L.y, n.x, n.y) < V.CAMP_R) : null, zk = camp ? 'c' + camp.cls : z;
+    if (lastZoneLabel !== zk) { lastZoneLabel = zk; hud.zoneLabel.textContent = camp ? camp.camp : zi.name; hud.zoneLvLabel.textContent = zi.safe || camp ? 'Safe' : `Lv ${zi.lv[0]}–${zi.lv[1]}`; }
     const [tx, ty] = V.toTile(L.x, L.y); hud.coords.textContent = `${Math.floor(tx)}, ${Math.floor(ty)}`;
     hud.onlineCount.hidden = G.mode !== 'online'; if (G.mode === 'online') hud.onlineCount.textContent = `${G.online} online`;
-    if (s.b) {
-      const [bz, bi, bn] = s.b, list = ZONE_INFO[bz].bounties, cur = list[bi % list.length];
-      hud.tracker.hidden = false; hud.bName.textContent = cur.name;
-      hud.bFill.style.width = (100 * bn / cur.n) + '%';
-      hud.bText.textContent = `Slay ${cur.types.map((t) => FOES[t].name).join(' or ')}: ${bn} / ${cur.n} · +${V.bountyReward(bz).toLocaleString()} XP`;
-    } else hud.tracker.hidden = true;
+    const bkey = JSON.stringify(s.bb);
+    if (bkey !== lastBounties) {
+      lastBounties = bkey;
+      const act = (s.bb || []).map((b, z) => b && b[2] ? [z, b] : null).filter(Boolean);
+      hud.tracker.hidden = !act.length;
+      hud.bList.innerHTML = act.map(([z, [i, n, st]]) => {
+        const cur = V.bountyOf(z, { i });
+        return `<div class="bq${st === 2 ? ' ready' : ''}"><div class="bn">${esc(cur.name)}</div><div class="bprog"><i style="width:${(100 * n / cur.n).toFixed(1)}%"></i></div>` +
+          `<div class="bt">${st === 2 ? 'Done · turn in at the bounty board' : `${esc(cur.types.map((t) => FOES[t].name).join(' or '))}: ${n} / ${cur.n}`}</div></div>`;
+      }).join('');
+      if (!$('winBoard').hidden) renderBoard();
+    }
+    updatePrompt();
     hud.death.hidden = !p.dead;
     if (p.dead) hud.deathText.textContent = `Rising at Vaelmort Gate in ${Math.max(1, Math.ceil(s.dead / 10))}…`;
     if (G.aim && G.aim.tgt) { G.target = G.aim.tgt; G.targetT = G.t; }
@@ -1186,6 +1244,8 @@
     const dot = (x, y, c, s = 2) => { const [tx, ty] = V.toTile(x, y); mctx.fillStyle = c; mctx.fillRect(Math.round(tx - ty + V.N - s / 2), Math.round((tx + ty) / 2 - s / 2), s, s); };
     for (const f of G.foes) if (!f.dead && !f.far && f.type !== 'dummy') dot(f.x, f.y, f.def.boss ? '#ffb02e' : f.elite ? '#ffcf4a' : '#e0464e', f.def.boss ? 3 : 1);
     for (const m of G.minions.values()) dot(m.x, m.y, '#7dffc8', 1);
+    for (const n of G.npcs) dot(n.x, n.y, n.cls === L.cls ? '#9be38a' : '#4f7a48', n.cls === L.cls ? 3 : 2);
+    { const [bx, by] = V.boardPos(); dot(bx, by, '#e2c781', 2); }
     for (const p of G.players.values()) if (p.id !== G.me && !p.dead) dot(p.x, p.y, glow(p.cls), 2);
     dot(L.x, L.y, '#ffffff', 3); dot(L.x, L.y, glow(L.cls), 1);
   }
@@ -1196,6 +1256,7 @@
     if (id === 'winTalents') renderTalents();
     if (id === 'winChar') renderChar();
     if (id === 'winMap') renderWorldMap();
+    if (id === 'winBoard') renderBoard();
     $(id).hidden = false; mouse.down = false; keys.clear();
   }
   function closeWindows() { for (const id of WINS) $(id).hidden = true; hideTip(); }
@@ -1212,6 +1273,10 @@
   function renderTalents() {
     if (!G.started) return;
     const tree = V.TALENTS[L.cls], tal = G.talents, avail = V.talentPoints(L.level) - V.spentPoints(tal);
+    const T = V.TRAINERS[L.cls], at = V.nearTrainer(L.cls, L.x, L.y);
+    $('talNote').textContent = at ? `${T.name} is ready to train you.` : `To spend points or reset, visit ${T.name} at ${T.camp} (marked on your map, M).`;
+    $('talNote').classList.toggle('ok', at);
+    $('respecBtn').hidden = !at;
     $('tpText').textContent = avail > 0 ? `${avail} point${avail > 1 ? 's' : ''} to spend` : `Level ${L.level} · ${V.spentPoints(tal)} spent`;
     const el = $('trees'); el.innerHTML = '';
     tree.forEach((b, bi) => {
@@ -1219,7 +1284,7 @@
       const bp = V.branchPoints(L.cls, tal, bi);
       col.innerHTML = `<h3>${esc(b.name)}<span>${bp} pts</span></h3>`;
       b.nodes.forEach((n, i) => {
-        const r = tal[n.id] || 0, can = V.canLearn(L.cls, L.level, tal, n.id), unlocked = bp >= V.TIER[i];
+        const r = tal[n.id] || 0, can = at && V.canLearn(L.cls, L.level, tal, n.id), unlocked = bp >= V.TIER[i];
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'node' + (r ? ' has' : '') + (r >= n.max ? ' max' : '') + (i === 4 ? ' cap' : '') + (!unlocked ? ' locked' : can ? ' can' : '');
@@ -1267,6 +1332,18 @@
       g.fillStyle = '#ffb02e'; g.beginPath(); g.arc(x, y, 5, 0, Math.PI * 2); g.fill(); g.strokeStyle = '#05040a'; g.lineWidth = 2; g.stroke();
       g.font = '9px Silkscreen, monospace'; g.lineWidth = 3; g.strokeText(f.def.name, x, y - 9); g.fillStyle = '#ffcf8a'; g.fillText(f.def.name, x, y - 9);
     }
+    for (const n of G.npcs) {
+      const [nx, ny] = V.toTile(n.x, n.y), x = (nx - ny + V.N) * sx, y = (nx + ny) / 2 * sy, own = n.cls === L.cls;
+      g.fillStyle = own ? '#9be38a' : '#5d8a55'; g.fillRect(x - 4, y - 4, 8, 8); g.strokeStyle = '#05040a'; g.lineWidth = 2; g.strokeRect(x - 4, y - 4, 8, 8);
+      if (own) { g.font = '700 10px Silkscreen, monospace'; g.lineWidth = 3; const lbl = `${n.name} · ${n.camp}`; g.strokeText(lbl, x, y + 16); g.fillStyle = '#c6f5b6'; g.fillText(lbl, x, y + 16); }
+    }
+    // legend
+    g.textAlign = 'left'; g.font = '10px Silkscreen, monospace'; g.lineWidth = 3;
+    const lg = [['#9be38a', 'Your trainer'], ['#5d8a55', 'Other trainers'], ['#e2c781', 'Bounty board'], ['#ffb02e', 'Boss']];
+    lg.forEach(([c, t], i) => { const ly = $('worldmap').height - 14 - (lg.length - 1 - i) * 16; g.fillStyle = c; g.fillRect(12, ly - 7, 8, 8); g.strokeText(t, 26, ly); g.fillStyle = '#ece6d8'; g.fillText(t, 26, ly); });
+    g.textAlign = 'center';
+    { const [bx0, by0] = V.toTile(...V.boardPos()), x = (bx0 - by0 + V.N) * sx, y = (bx0 + by0) / 2 * sy;
+      g.fillStyle = '#e2c781'; g.fillRect(x - 3, y - 3, 6, 6); }
     const [tx, ty] = V.toTile(L.x, L.y), px = (tx - ty + V.N) * sx, py = (tx + ty) / 2 * sy;
     g.fillStyle = '#ffffff'; g.beginPath(); g.arc(px, py, 6, 0, Math.PI * 2); g.fill(); g.fillStyle = glow(L.cls); g.beginPath(); g.arc(px, py, 3.5, 0, Math.PI * 2); g.fill();
   }
@@ -1455,7 +1532,9 @@
     G.players.set(G.me, { id: G.me, name: w.name, cls: L.cls, x: L.x, y: L.y, sx: L.x, sy: L.y, hp: 1, maxHp: 1, dead: false, buffs: 0, level: w.level, rcv: G.t, animT: 0, ghostT: 0, seq: w.seq });
     chatLog.textContent = '';
     chatLine(`Welcome to Vaelmort, ${w.name}. Press Enter to chat.`, 'sys');
-    if (L.level === 1) chatLine('Hollows and Dire Wolves roam the Mourning Wood to the north. Bounties track on the right.', 'sys');
+    if (L.level === 1) chatLine('Hollows and Dire Wolves roam the Mourning Wood to the north. Take bounties from the board in town (E).', 'sys');
+    chatLine(`Your trainer, ${V.TRAINERS[L.cls].name}, keeps camp at ${V.TRAINERS[L.cls].camp}. Camps are marked on your map and enemies will not follow you into them.`, 'sys');
+    lastBounties = ''; lastPrompt = '-'; lastAtTrainer = null;
     updateClassHud();
     $('screenChars').hidden = true; $('screenLogin').hidden = true; $('hud').classList.add('live'); view.classList.add('live');
     G.started = true; G.zone = -1; lastZoneLabel = -2; view.focus?.();
@@ -1526,6 +1605,19 @@
         jobs.push(new Promise((ok, bad) => { const im = new Image(); im.onload = () => ok(); im.onerror = () => bad(new Error('Missing enemy sheet ' + a.file)); im.src = 'assets/foes/' + a.file; G.foeSheets[key][anim] = im; }));
       }
     }
+    // 3D-rendered town and camp props (tools/sprite-gen/props.js); the 2D builders stay as a fallback
+    const propImgs = {};
+    const pres = await fetch('assets/props/props.json').catch(() => null);
+    if (pres && pres.ok) {
+      const pm = await pres.json();
+      for (const [key, list] of Object.entries(pm)) {
+        propImgs[key] = list.map((m) => {
+          const im = new Image(), o = { c: im, ax: m.ax, ay: m.ay, fire: m.fire, glow: m.glow };
+          jobs.push(new Promise((ok) => { im.onload = () => ok(); im.onerror = () => { o.bad = true; ok(); }; im.src = 'assets/props/' + m.file; }));
+          return o;
+        });
+      }
+    }
     try { await Promise.race([document.fonts.load('8px Silkscreen'), new Promise((r) => setTimeout(r, 1500))]); } catch (e) { /* fallback font */ }
     await Promise.all(jobs);
     await new Promise((r) => setTimeout(r, 30));
@@ -1533,9 +1625,10 @@
     G.coll = V.makeCollision(G.map);
     G.ground = V.makeGround(G.map);
     G.spr = V.buildSprites();
+    for (const [key, list] of Object.entries(propImgs)) if (G.spr[key] && list.every((o) => !o.bad)) G.spr[key] = [0, 1, 2].map((v) => list[v % list.length]);
     G.mini = V.paintMinimap(G.map);
     mini.width = G.mini.width; mini.height = G.mini.height;
-    G.npcs = NPCS.map(([a, b, cls, name], i) => { const [x, y] = V.toWorld(V.C + a, V.C + b); return { x, y, cls, name, title: `<${G.meta.heroes[cls].name} Trainer>`, row: 0, phase: i * 0.37 }; });
+    G.npcs = Object.keys(V.TRAINERS).map((cls, i) => { const [x, y] = V.trainerPos(cls), T = V.TRAINERS[cls]; return { x, y, cls, name: T.name, camp: T.camp, title: `<${G.meta.heroes[cls].name} Trainer>`, row: 0, phase: i * 0.37 }; });
     const [ox, oy] = V.toWorld(V.C, V.C);
     G.ground.warm(ox - 520, oy - 360, 1040, 720);
     const url = serverURL();

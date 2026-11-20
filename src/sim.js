@@ -81,7 +81,7 @@
     S.addPlayer = function (pid, ch = {}) {
       const cls = CLASSES[ch.cls] ? ch.cls : 'necromancer', sp = spawnPoint(), level = clamp(ch.level | 0 || 1, 1, V.MAX_LEVEL);
       const p = { id: pid, name: ch.name || 'Wanderer', cls, level, xp: Math.max(0, ch.xp | 0), kills: ch.kills | 0,
-        talents: V.cleanTalents(cls, level, ch.talents), bounties: (ch.bounties && typeof ch.bounties === 'object') ? ch.bounties : {},
+        talents: V.cleanTalents(cls, level, ch.talents), bounties: V.cleanBounties(ch.bounties),
         x: sp.x, y: sp.y, row: 0, moving: false, atk: null, cds: {}, cdDodge: 0, dodgeT: 0, inv: 1.5, crit: 0, dead: 0, lastHit: 99, lastCombat: -99,
         banner: false, buffs: {}, shield: 0, channel: null, empower: 0, lastStandT: -999, seq: 1, r: 12, zone: 0,
         aim: { a: 0, gx: sp.x, gy: sp.y, tgt: -1 }, attack: false, skillReq: 0, lastPosT: 0 };
@@ -104,6 +104,7 @@
     S.learn = function (pid, node) {
       const p = S.players.get(pid);
       if (!p || !V.canLearn(p.cls, p.level, p.talents, node)) return false;
+      if (!V.nearTrainer(p.cls, p.x, p.y, 40)) { emit({ e: 'nope', id: pid, why: 'trainer' }); return false; }
       p.talents[node] = (p.talents[node] || 0) + 1;
       applyStats(p, false);
       emit({ e: 'talents', id: pid, tal: p.talents });
@@ -112,8 +113,38 @@
     S.respec = function (pid) {
       const p = S.players.get(pid);
       if (!p) return false;
+      if (!V.nearTrainer(p.cls, p.x, p.y, 40)) { emit({ e: 'nope', id: pid, why: 'trainer' }); return false; }
       p.talents = {}; applyStats(p, false);
       emit({ e: 'talents', id: pid, tal: p.talents });
+      return true;
+    };
+    // ---------- the bounty board ----------
+    const activeBounties = (p) => Object.values(p.bounties).filter((b) => b.st > 0).length;
+    S.acceptBounty = function (pid, z) {
+      const p = S.players.get(pid), info = ZONE_INFO[z];
+      if (!p || !info || !info.bounties || p.dead > 0) return false;
+      if (!V.nearBoard(p.x, p.y, 40)) { emit({ e: 'nope', id: pid, why: 'board' }); return false; }
+      const b = p.bounties[z] || (p.bounties[z] = { i: 0, n: 0, st: 0 });
+      if (b.st !== 0) return false;
+      if (activeBounties(p) >= V.MAX_BOUNTIES) { emit({ e: 'nope', id: pid, why: 'bounties' }); return false; }
+      b.st = 1; b.n = 0;
+      emit({ e: 'bounty', id: pid, z, acc: V.bountyOf(z, b).name });
+      return true;
+    };
+    S.turnIn = function (pid, z) {
+      const p = S.players.get(pid), b = p && p.bounties[z];
+      if (!b || b.st !== 2 || p.dead > 0) return false;
+      if (!V.nearBoard(p.x, p.y, 40)) { emit({ e: 'nope', id: pid, why: 'board' }); return false; }
+      const xp = V.bountyReward(z), name = V.bountyOf(z, b).name;
+      b.i++; b.n = 0; b.st = 0;
+      emit({ e: 'bounty', id: pid, z, done: name, xp });
+      grantXp(p, xp);
+      return true;
+    };
+    S.abandonBounty = function (pid, z) {
+      const p = S.players.get(pid), b = p && p.bounties[z];
+      if (!b || b.st !== 1) return false;
+      b.st = 0; b.n = 0;
       return true;
     };
     function correct(p) { p.seq++; emit({ e: 'pos', id: p.id, x: r1(p.x), y: r1(p.y), seq: p.seq }); }
@@ -213,22 +244,19 @@
       }
       if (p.level >= V.MAX_LEVEL) p.xp = 0;
     }
-    function bountyProgress(p, f) {
-      const z = f.zone, info = ZONE_INFO[z];
-      if (!info || !info.bounties) return;
-      const b = p.bounties[z] || (p.bounties[z] = { i: 0, n: 0 });
-      const cur = info.bounties[b.i % info.bounties.length];
-      if (!cur.types.includes(f.type)) return;
-      b.n++;
-      if (b.n >= cur.n) {
-        const xp = V.bountyReward(z);
-        emit({ e: 'bounty', id: p.id, z, done: cur.name, xp });
-        b.i++; b.n = 0;
-        grantXp(p, xp);
-      } else emit({ e: 'bounty', id: p.id, z, n: b.n });
+    function bountyProgress(p, f) { // only accepted bounties count; finished ones wait to be turned in at the board
+      for (const z in p.bounties) {
+        const b = p.bounties[z];
+        if (b.st !== 1) continue;
+        const cur = V.bountyOf(z, b);
+        if (!cur.types.includes(f.type)) continue;
+        b.n++;
+        if (b.n >= cur.n) { b.n = cur.n; b.st = 2; emit({ e: 'bounty', id: p.id, z: +z, ready: cur.name }); }
+        else emit({ e: 'bounty', id: p.id, z: +z, n: b.n });
+      }
     }
     function hurtPlayer(p, dmg, src) {
-      if (p.dodgeT > 0 || p.inv > 0 || p.dead > 0) return;
+      if (p.dodgeT > 0 || p.inv > 0 || p.dead > 0 || V.inCamp(p.x, p.y)) return;
       const Cl = CLASSES[p.cls];
       dmg *= (1 - Math.min(0.75, Cl.armor + p.mods.armor)) * (p.buffs.bulwark > 0 ? 0.5 : 1) * (p.buffs.barkskin > 0 ? 0.6 : 1);
       if (p.shield > 0) { const a = Math.min(p.shield, dmg); p.shield -= a; dmg -= a; if (p.shield <= 0) p.buffs.shield = 0; }
@@ -684,12 +712,13 @@
     }
 
     // ---------- foes ----------
-    const alive = (t) => t && (t.kind === 'player' ? S.players.get(t.id) === t.ref && t.ref.dead <= 0 && !(t.ref.buffs.invis > 0) : t.ref.hp > 0 && t.ref.life > 0 && !t.ref.gone);
+    const alive = (t) => t && (t.kind === 'player' ? S.players.get(t.id) === t.ref && t.ref.dead <= 0 && !(t.ref.buffs.invis > 0) && !V.inCamp(t.ref.x, t.ref.y) : t.ref.hp > 0 && t.ref.life > 0 && !t.ref.gone);
     function pickTarget(f) {
       let best = null, bd = f.def.aggro;
       for (const p of S.players.values()) {
         if (p.dead > 0 || p.buffs.invis > 0) continue;
-        const d = gdist(f.x, f.y, p.x, p.y); if (d < bd) { bd = d; best = { kind: 'player', ref: p, id: p.id }; }
+        const d = gdist(f.x, f.y, p.x, p.y);
+        if (d < bd && V.inCamp(p.x, p.y)) continue; if (d < bd) { bd = d; best = { kind: 'player', ref: p, id: p.id }; }
       }
       for (const m of S.minions) {
         if (m.hp <= 0 || m.life <= 0 || m.rise > 0) continue;
@@ -934,14 +963,12 @@
     const minionRow = (m) => [m.id, m.owner, R(m.x), R(m.y), m.face, R(Math.max(0, m.rise) * 100), m.atkT > 0 ? 1 : 0, m.life < 3 ? 1 : 0, m.moving ? 1 : 0, m.kind];
     const fieldRow = (F) => [F.id, V.FIELD_KINDS.indexOf(F.kind), R(F.x), R(F.y), F.r, R(F.t * 100), R(F.life * 100), F.seed];
     function meBlock(p) {
-      const z = p.zone, info = ZONE_INFO[z];
-      let b = null;
-      if (info && info.bounties) { const st = p.bounties[z] || { i: 0, n: 0 }; b = [z, st.i, st.n]; }
+      const b = ZONE_INFO.map((info, z) => { const e = p.bounties[z]; return info.bounties ? (e ? [e.i, e.n, e.st] : [0, 0, 0]) : 0; });
       return {
         lv: p.level, xp: R(p.xp), nx: V.xpNext(p.level), res: R(p.res), rm: p.resMax,
         cd: CLASSES[p.cls].skills.map((sk) => R((p.cds[sk] || 0) * 10)), dcd: R(p.cdDodge * 100),
         spd: Math.round(speedOf(p) * 10) / 10, sh: R(p.shield), k: p.kills, tp: V.talentPoints(p.level) - V.spentPoints(p.talents),
-        bf: Object.entries(p.buffs).filter(([k]) => k !== 'ambush').map(([k, v]) => [k, R(v * 10)]), b, dead: R(Math.max(0, p.dead) * 10),
+        bf: Object.entries(p.buffs).filter(([k]) => k !== 'ambush').map(([k, v]) => [k, R(v * 10)]), bb: b, dead: R(Math.max(0, p.dead) * 10),
       };
     }
 

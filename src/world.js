@@ -52,7 +52,7 @@
     brazier: { r: 14, light: ['#ff9a3c', 150, 1] }, obelisk: { r: 40, light: ['#3ccf97', 200, 1] },
     bush: { r: 0 }, mushroom: { r: 0, light: ['#5fd3e8', 46, 0.55] }, candle: { r: 0, light: ['#ffd99a', 58, 0.7] },
     snowpine: { r: 22 }, crystal: { r: 14, light: ['#8fe0ff', 70, 0.7] }, voidspire: { r: 16, light: ['#b46cff', 90, 0.8] },
-    lamp: { r: 6, light: ['#ffcf7a', 110, 0.9] }, tent: { r: 26 }, well: { r: 22 }, board: { r: 14 },
+    lamp: { r: 6, light: ['#ffcf7a', 110, 0.9] }, tent: { r: 34 }, well: { r: 24 }, board: { r: 16 },
   };
 
   V.generate = function (seed) {
@@ -77,6 +77,20 @@
       tiles[k] = t;
       if (t === T.WATER || t === T.ABYSS) solid[k] = 1;
     }
+    // trainer camps: a patch of packed earth that is never water
+    const camps = Object.keys(V.TRAINERS || {}).map((cls) => ({ cls, tx: C + V.TRAINERS[cls].at[0], ty: C + V.TRAINERS[cls].at[1] }));
+    const campDist = (tx, ty) => camps.reduce((m, c) => Math.min(m, Math.hypot(tx - c.tx, ty - c.ty)), 999);
+    // distance to the walk from the edge of town out to any camp (kept clear of spawns so a level 2 can reach their trainer)
+    const pathDist = (tx, ty) => camps.reduce((m, c) => {
+      const dx = c.tx - C, dy = c.ty - C, L = Math.hypot(dx, dy), ux = dx / L, uy = dy / L;
+      const t = Math.max(8, Math.min(L, (tx - C) * ux + (ty - C) * uy));
+      return Math.min(m, Math.hypot(tx - C - ux * t, ty - C - uy * t));
+    }, 999);
+    for (const c of camps) for (let j = Math.floor(c.ty - 4); j <= c.ty + 4; j++) for (let i = Math.floor(c.tx - 4); i <= c.tx + 4; i++) {
+      const d = Math.hypot(i + 0.5 - c.tx, j + 0.5 - c.ty), k = j * N + i;
+      if (d < 3.4) { solid[k] = 0; if (tiles[k] === T.WATER || tiles[k] === T.ABYSS) tiles[k] = T.DIRT; }
+      if (d < 2.3 && tiles[k] !== T.ROAD) tiles[k] = T.DIRT;
+    }
 
     const props = [];
     const add = (type, tx, ty, v) => {
@@ -91,13 +105,20 @@
       add('lamp', C + sgn * d / 2 + 0.9, C - sgn * d / 2 + 0.9, 0); // beside the east-west road
     }
     add('tent', C - 4.2, C - 1.4, 0); add('tent', C - 1.4, C - 4.2, 1); add('tent', C + 5.6, C + 2.2, 2);
-    add('well', C + 3.6, C + 1, 0); add('board', C + 1.2, C + 4, 0);
+    add('well', C + 3.6, C + 1, 0); add('board', C + V.BOARD_AT[0], C + V.BOARD_AT[1], 0);
+    const TENT = { druid: 1, assassin: 0, warlord: 2, hunter: 0, necromancer: 1, doomknight: 2 };
+    for (const c of camps) { // tent behind the trainer, a brazier and a lamp to either side
+      add('tent', c.tx - 1.5, c.ty - 1.5, TENT[c.cls] || 0);
+      add('brazier', c.tx + 1.3, c.ty - 0.5, 0);
+      add('lamp', c.tx - 0.5, c.ty + 1.3, 0);
+    }
 
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
       const k = j * N + i, t = tiles[k], z = zones[k];
       if (t === T.PLAZA || t === T.ROAD || t === T.WATER || t === T.ABYSS) continue;
       const r = Math.hypot(i + 0.5 - C, j + 0.5 - C);
       if (r < 10) continue;
+      if (campDist(i + 0.5, j + 0.5) < 3.6) { R(); R(); R(); continue; }
       const p = R(), x = i + 0.2 + R() * 0.6, y = j + 0.2 + R() * 0.6;
       const rim = i < 2 || j < 2 || i > N - 3 || j > N - 3;
       if (rim && p < 0.45) { add(z === 6 ? 'voidspire' : z === 5 ? 'snowpine' : 'pine', x, y); continue; }
@@ -145,13 +166,14 @@
       for (const strict of [true, false]) for (let tries = 0; tries < 6000 && out.length < count; tries++) {
         const i = (R() * N) | 0, j = (R() * N) | 0, r = Math.hypot(i + 0.5 - C, j + 0.5 - C);
         if (zones[j * N + i] !== zone || r < minR || r > (maxR || 999) || !free(i, j, strict)) continue;
+        if (campDist(i + 0.5, j + 0.5) < 6.5 || pathDist(i + 0.5, j + 0.5) < 4.5) continue; // nothing hostile beside a camp or on the way to it
         if (out.some((o) => Math.hypot(o[0] - i - 0.5, o[1] - j - 0.5) < (strict ? 3 : 2))) continue;
         out.push([i + 0.5, j + 0.5]);
       }
       return out;
     }
 
-    return { seed, tiles, zones, solid, props, grid, spawnPoints, zoneOf: (i, j) => (i < 0 || j < 0 || i >= N || j >= N) ? -1 : zones[j * N + i] };
+    return { seed, tiles, zones, solid, props, grid, spawnPoints, camps, zoneOf: (i, j) => (i < 0 || j < 0 || i >= N || j >= N) ? -1 : zones[j * N + i] };
   };
 
   // ---------- color helpers ----------

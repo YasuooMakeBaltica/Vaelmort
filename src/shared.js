@@ -99,7 +99,43 @@
     storm: { name: 'Storm of the Grove', lvl: 15, cd: 55, cost: 60, ult: true, desc: 'Call a storm for 6s that strikes enemies in the area with lightning.' },
   };
   V.SKILL_KEYS = ['1', '2', '3', '4', '5'];
-  V.SKILL_ALT = ['q', 'e', 'r', 'f', 't'];
+
+  // ---------- trainers, camps and the bounty board (tile offsets from the town centre) ----------
+  // Each class trainer keeps a small camp at the edge of a zone. Camps are safe: enemies cannot attack you there.
+  V.TRAINERS = {
+    druid: { name: 'Elder Wren', camp: 'Wren\'s Grove', at: [-13, -7.5] },
+    assassin: { name: 'Vex the Quiet', camp: 'Shade Hollow', at: [-7.5, -13] },
+    warlord: { name: 'Gorran Ironbrow', camp: 'Ironbrow Camp', at: [7.5, 13] },
+    hunter: { name: 'Inquisitor Sable', camp: 'Sable\'s Watch', at: [13, 7.5] },
+    necromancer: { name: 'Morvane', camp: 'The Ossuary', at: [8.6, -12.3] },
+    doomknight: { name: 'Ser Halvard', camp: 'Cinder Bastion', at: [-8.6, 12.3] },
+  };
+  V.BOARD_AT = [1.2, 4];       // the bounty board in Vaelmort Gate
+  V.CAMP_R = 130;              // ground px around a camp where you are safe
+  V.INTERACT = 120;            // ground px to talk to a trainer or use the board
+  V.MAX_BOUNTIES = 3;
+  V.trainerPos = (cls) => { const t = V.TRAINERS[cls]; return V.toWorld(V.C + t.at[0], V.C + t.at[1]); };
+  V.boardPos = () => V.toWorld(V.C + V.BOARD_AT[0], V.C + V.BOARD_AT[1]);
+  let campPts = null;
+  V.inCamp = (x, y) => {
+    campPts = campPts || Object.keys(V.TRAINERS).map(V.trainerPos);
+    for (const [tx, ty] of campPts) if (V.gdist(x, y, tx, ty) < V.CAMP_R) return true;
+    return false;
+  };
+  V.nearTrainer = (cls, x, y, pad = 0) => { const [tx, ty] = V.trainerPos(cls); return V.gdist(x, y, tx, ty) < V.INTERACT + pad; };
+  V.nearBoard = (x, y, pad = 0) => { const [bx, by] = V.boardPos(); return V.gdist(x, y, bx, by) < V.INTERACT + pad; };
+  // bounty state per zone: { i: which bounty in the zone's list, n: kills so far, st: 0 on the board, 1 accepted, 2 ready to turn in }
+  V.cleanBounties = (b) => {
+    const out = {};
+    if (!b || typeof b !== 'object') return out;
+    for (let z = 1; z < V.ZONE_INFO.length; z++) {
+      const e = b[z]; if (!e || typeof e !== 'object' || !V.ZONE_INFO[z].bounties) continue;
+      const st = [0, 1, 2].includes(e.st) ? e.st : 0;
+      out[z] = { i: Math.max(0, e.i | 0), n: st ? Math.max(0, e.n | 0) : 0, st };
+    }
+    return out;
+  };
+  V.bountyOf = (z, e) => { const list = V.ZONE_INFO[z].bounties; return list[(e ? e.i : 0) % list.length]; };
 
   // ---------- talents: 3 branches x 5 nodes; node i needs TIER[i] points spent in its branch ----------
   V.TIER = [0, 3, 5, 8, 10];

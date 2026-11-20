@@ -26,7 +26,7 @@ const store = createStore();
 
 // ---------- static files ----------
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.md': 'text/markdown; charset=utf-8' };
-const PUBLIC = [/^index\.html$/, /^src\/[a-z]+\.js$/, /^assets\/heroes\/heroes\.json$/, /^assets\/heroes\/sheets\/[a-z_]+\.png$/, /^assets\/foes\/foes\.json$/, /^assets\/foes\/[a-z_]+\.png$/];
+const PUBLIC = [/^index\.html$/, /^src\/[a-z]+\.js$/, /^assets\/heroes\/heroes\.json$/, /^assets\/heroes\/sheets\/[a-z_]+\.png$/, /^assets\/foes\/foes\.json$/, /^assets\/foes\/[a-z_]+\.png$/, /^assets\/props\/props\.json$/, /^assets\/props\/[a-z_0-9]+\.png$/];
 const indexHtml = () => fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')
   .replace(/<meta name="vaelmort-server" content="[^"]*">/, '<meta name="vaelmort-server" content="same-origin">');
 const server = http.createServer((req, res) => {
@@ -147,6 +147,9 @@ wss.on('connection', (ws) => {
       if (m.t === 'in') sim.input(c.pid, m);
       else if (m.t === 'learn' && typeof m.node === 'string') { if (sim.learn(c.pid, m.node)) saveChar(c); }
       else if (m.t === 'respec') { if (sim.respec(c.pid)) saveChar(c); }
+      else if (m.t === 'accept' && Number.isInteger(m.z)) { if (sim.acceptBounty(c.pid, m.z)) saveChar(c); }
+      else if (m.t === 'turnin' && Number.isInteger(m.z)) { if (sim.turnIn(c.pid, m.z)) saveChar(c); }
+      else if (m.t === 'abandon' && Number.isInteger(m.z)) { if (sim.abandonBounty(c.pid, m.z)) saveChar(c); }
       else if (m.t === 'leave') { await leaveWorld(c); await sendChars(ws, c); }
       else if (m.t === 'chat') {
         const now = Date.now();
