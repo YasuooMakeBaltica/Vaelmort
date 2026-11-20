@@ -68,11 +68,11 @@
       if (plaza) t = T.PLAZA;
       else if (road) t = T.ROAD;
       else if (z === 1) t = n > 0.62 ? T.GRASS : n < 0.36 ? T.DIRT : T.MOSS;
-      else if (z === 2) t = (r > 11 && fbm(cx * 0.085, cy * 0.085, seed + 3) > 0.57) ? T.WATER : n > 0.62 ? T.DIRT : T.GRAVE;
+      else if (z === 2) t = n > 0.62 ? T.DIRT : T.GRAVE; // (no more water pools)
       else if (z === 3) t = fbm(cx * 0.19, cy * 0.19, seed + 5) > 0.6 ? T.EMBER : n > 0.66 ? T.DIRT : T.ASH;
-      else if (z === 4) t = (r > 12 && fbm(cx * 0.12, cy * 0.12, seed + 9) > 0.67) ? T.WATER : n < 0.38 ? T.DIRT : T.GRASS;
+      else if (z === 4) t = n < 0.38 ? T.DIRT : T.GRASS;
       else if (z === 5) t = fbm(cx * 0.1, cy * 0.1, seed + 13) > 0.6 ? T.ICE : n < 0.3 ? T.DIRT : T.SNOW;
-      else if (z === 6) t = (r > 36 && fbm(cx * 0.1, cy * 0.1, seed + 17) > 0.64) ? T.ABYSS : n > 0.64 ? T.ASH : T.VOID;
+      else if (z === 6) t = n > 0.64 ? T.ASH : T.VOID; // (no more abyss pits)
       else t = T.GRASS;
       tiles[k] = t;
       if (t === T.WATER || t === T.ABYSS) solid[k] = 1;
