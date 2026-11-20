@@ -137,8 +137,7 @@
   };
   V.bountyOf = (z, e) => { const list = V.ZONE_INFO[z].bounties; return list[(e ? e.i : 0) % list.length]; };
 
-  // ---------- talents: 3 branches x 5 nodes; node i needs TIER[i] points spent in its branch ----------
-  V.TIER = [0, 3, 5, 8, 10];
+  // ---------- talent definitions (placed into each class's skill web below) ----------
   const T = (id, name, max, mod, desc) => ({ id, name, max, mod, desc });
   V.TALENTS = {
     doomknight: [
@@ -208,35 +207,81 @@
         T('drs5', 'Eye of the Storm', 1, { flag: 'eyeStorm' }, 'Your storm follows you and strikes twice as often.')] },
     ],
   };
-  V.talentNode = (cls, id) => { for (const b of V.TALENTS[cls]) for (const n of b.nodes) if (n.id === id) return n; return null; };
-  V.branchPoints = (cls, talents, bi) => V.TALENTS[cls][bi].nodes.reduce((s, n) => s + (talents[n.id] || 0), 0);
-  V.spentPoints = (talents) => Object.values(talents || {}).reduce((s, r) => s + r, 0);
+  // ---------- the skill web ----------
+  // Each class has a star map: a free heart (which grants the first skill), three branches of skills,
+  // passives and keystones, bridges between branches and the ultimate on the rim. A node can be bought
+  // when it links to something you already own. Skills cost points from the same pool as passives.
+  const BRIDGE = [{ hp: 0.04 }, { dmg: 0.03 }, { crit: 0.02 }];
+  const BRIDGE_TXT = ['+4% maximum health per rank.', '+3% damage per rank.', '+2% critical chance per rank.'];
+  const BRIDGE_NAME = ['Kinship', 'Convergence', 'Alignment'];
+  V.WEB = {};
+  for (const cls of V.ORDER) {
+    const sk = V.CLASSES[cls].skills, tree = V.TALENTS[cls], nodes = {}, list = [];
+    const add = (n) => { n.links = n.links || []; nodes[n.id] = n; list.push(n); return n; };
+    const link = (a, b) => { nodes[a].links.push(b); nodes[b].links.push(a); };
+    add({ id: 'heart', kind: 'heart', name: V.CLASSES[cls].basic.name + ' & ' + V.SKILLS[sk[0]].name, max: 1, cost: 0, ring: 0, lat: 0, b: -1, skill: sk[0],
+      desc: `Where every ${cls === 'hunter' ? 'witch hunter' : cls} begins. Grants ${V.SKILLS[sk[0]].name}.` });
+    // give each branch the skill its talents upgrade most
+    const pool = sk.slice(1, 4), pick = tree.map(() => null);
+    const refs = (br, s) => br.nodes.reduce((c, n) => c + Object.keys(n.mod).filter((k) => k.startsWith(s + '.')).length, 0);
+    for (let round = 0; round < 3; round++) {
+      let best = null;
+      tree.forEach((br, b) => { if (pick[b]) return; for (const s of pool) if (!pick.includes(s)) { const r = refs(br, s); if (!best || r > best[0]) best = [r, b, s]; } });
+      pick[best[1]] = best[2];
+    }
+    tree.forEach((br, b) => {
+      const n = br.nodes, s = pick[b];
+      add({ id: s, kind: 'skill', skill: s, name: V.SKILLS[s].name, max: 1, cost: 1, ring: 1.15, lat: 0, b, desc: V.SKILLS[s].desc }); link('heart', s);
+      const P = (t, ring, lat, kind) => add(Object.assign({}, t, { kind: kind || (t.mod.flag ? 'key' : 'passive'), cost: 1, ring, lat, b }));
+      P(n[0], 2.2, 0); link(s, n[0].id);
+      P(n[1], 3.2, -0.55); P(n[2], 3.2, 0.55); link(n[0].id, n[1].id); link(n[0].id, n[2].id);
+      P(n[3], 4.2, 0); link(n[1].id, n[3].id); link(n[2].id, n[3].id);
+      P(n[4], 5.3, 0); link(n[3].id, n[4].id);
+    });
+    // bridges between neighbouring branches, the ultimate between branches 0 and 1
+    for (let b = 1; b <= 2; b++) {
+      const id = cls + '_x' + b, right = (b + 1) % 3;
+      add({ id, kind: 'passive', name: BRIDGE_NAME[b], max: 2, cost: 1, ring: 3.5, lat: 0, b: b + 0.5, mod: BRIDGE[b], desc: BRIDGE_TXT[b] });
+      link(id, tree[b].nodes[2].id); link(id, tree[right].nodes[1].id);
+    }
+    const u = sk[4];
+    add({ id: u, kind: 'ult', skill: u, name: V.SKILLS[u].name, max: 1, cost: 3, ring: 5.6, lat: 0, b: 0.5, desc: V.SKILLS[u].desc });
+    link(u, tree[0].nodes[3].id); link(u, tree[1].nodes[3].id);
+    V.WEB[cls] = { nodes, list };
+  }
+  V.webNode = (cls, id) => V.WEB[cls].nodes[id] || null;
+  V.spentPoints = (cls, talents) => { let s = 0; for (const id in talents || {}) { const n = V.webNode(cls, id); if (n) s += (talents[id] | 0) * n.cost; } return s; };
+  V.pointsLeft = (cls, level, talents) => V.talentPoints(level) - V.spentPoints(cls, talents);
+  V.reachable = (cls, talents, id) => { const n = V.webNode(cls, id); return !!n && n.links.some((l) => l === 'heart' || (talents[l] | 0) > 0); };
   // can this character put one more point into node id?
   V.canLearn = (cls, level, talents, id) => {
-    const tree = V.TALENTS[cls];
-    for (let bi = 0; bi < tree.length; bi++) {
-      const i = tree[bi].nodes.findIndex((n) => n.id === id);
-      if (i < 0) continue;
-      const n = tree[bi].nodes[i];
-      return (talents[id] || 0) < n.max && V.spentPoints(talents) < V.talentPoints(level) && V.branchPoints(cls, talents, bi) >= V.TIER[i];
-    }
-    return false;
+    const n = V.webNode(cls, id);
+    if (!n || n.kind === 'heart' || (talents[id] | 0) >= n.max) return false;
+    return V.pointsLeft(cls, level, talents) >= n.cost && V.reachable(cls, talents, id);
   };
+  // keep only what is still legal (connected, affordable), buying in order outward from the heart
   V.cleanTalents = (cls, level, raw) => {
     const out = {};
     if (!raw || typeof raw !== 'object') return out;
-    for (const b of V.TALENTS[cls]) for (const n of b.nodes) {
-      const want = Math.max(0, Math.min(n.max, raw[n.id] | 0));
-      for (let k = 0; k < want; k++) if (V.canLearn(cls, level, out, n.id)) out[n.id] = (out[n.id] || 0) + 1;
+    for (let pass = 0, more = true; more && pass < 20; pass++) {
+      more = false;
+      for (const n of V.WEB[cls].list) while ((out[n.id] | 0) < Math.min(n.max, raw[n.id] | 0) && V.canLearn(cls, level, out, n.id)) { out[n.id] = (out[n.id] | 0) + 1; more = true; }
     }
+    return out;
+  };
+  V.ownedSkills = (cls, talents) => V.WEB[cls].list.filter((n) => n.skill && (n.kind === 'heart' || (talents[n.id] | 0) > 0)).map((n) => n.skill);
+  // the 1-5 action bar: owned skills only, no duplicates
+  V.cleanBar = (cls, talents, bar) => {
+    const own = new Set(V.ownedSkills(cls, talents)), out = [null, null, null, null, null];
+    if (Array.isArray(bar)) bar.slice(0, 5).forEach((s, i) => { if (own.has(s) && !out.includes(s)) out[i] = s; });
     return out;
   };
   V.computeMods = (cls, talents) => {
     const m = { dmg: 0, crit: 0, hp: 0, armor: 0, speed: 0, leech: 0, thorns: 0, resGen: 0, execute: 0, basicRange: 0, summonDmg: 0, summonHp: 0,
       dodgeCdr: 0, poison: 0, magicDmg: 0, healPow: 0, skill: {}, flags: new Set() };
-    for (const b of V.TALENTS[cls]) for (const n of b.nodes) {
-      const r = talents[n.id] || 0;
-      if (!r) continue;
+    for (const n of V.WEB[cls].list) {
+      const r = talents[n.id] | 0;
+      if (!r || !n.mod) continue;
       for (const [k, v] of Object.entries(n.mod)) {
         if (k === 'flag') m.flags.add(v);
         else if (k.includes('.')) { const [s, f] = k.split('.'); (m.skill[s] || (m.skill[s] = {}))[f] = (m.skill[s][f] || 0) + v * r; }

@@ -81,10 +81,13 @@
     S.addPlayer = function (pid, ch = {}) {
       const cls = CLASSES[ch.cls] ? ch.cls : 'necromancer', sp = spawnPoint(), level = clamp(ch.level | 0 || 1, 1, V.MAX_LEVEL);
       const p = { id: pid, name: ch.name || 'Wanderer', cls, level, xp: Math.max(0, ch.xp | 0), kills: ch.kills | 0,
-        talents: V.cleanTalents(cls, level, ch.talents), bounties: V.cleanBounties(ch.bounties),
+        talents: Array.isArray(ch.bar) ? V.cleanTalents(cls, level, ch.talents) : {}, bounties: V.cleanBounties(ch.bounties),
         x: sp.x, y: sp.y, row: 0, moving: false, atk: null, cds: {}, cdDodge: 0, dodgeT: 0, inv: 1.5, crit: 0, dead: 0, lastHit: 99, lastCombat: -99,
         banner: false, buffs: {}, shield: 0, channel: null, empower: 0, lastStandT: -999, seq: 1, r: 12, zone: 0,
         aim: { a: 0, gx: sp.x, gy: sp.y, tgt: -1 }, attack: false, skillReq: 0, lastPosT: 0 };
+      // characters from before the skill web keep their level but get every point back (once)
+      p.refunded = !Array.isArray(ch.bar) && level > 1;
+      p.bar = V.cleanBar(cls, p.talents, Array.isArray(ch.bar) ? ch.bar : [CLASSES[cls].skills[0]]);
       applyStats(p, true);
       p.res = RES[CLASSES[cls].res].start;
       S.players.set(pid, p);
@@ -100,12 +103,14 @@
       S.fields = S.fields.filter((F) => F.owner !== pid || F.kind === 'fire');
       emit({ e: 'leave', id: pid, name: p.name });
     };
-    S.charData = (pid) => { const p = S.players.get(pid); return p && { level: p.level, xp: R(p.xp), kills: p.kills, talents: p.talents, bounties: p.bounties }; };
+    S.charData = (pid) => { const p = S.players.get(pid); return p && { level: p.level, xp: R(p.xp), kills: p.kills, talents: p.talents, bounties: p.bounties, bar: p.bar }; };
     S.learn = function (pid, node) {
       const p = S.players.get(pid);
       if (!p || !V.canLearn(p.cls, p.level, p.talents, node)) return false;
       if (!V.nearTrainer(p.cls, p.x, p.y, 40)) { emit({ e: 'nope', id: pid, why: 'trainer' }); return false; }
       p.talents[node] = (p.talents[node] || 0) + 1;
+      const n = V.webNode(p.cls, node);
+      if (n.skill && !p.bar.includes(n.skill)) { const i = p.bar.indexOf(null); if (i >= 0) p.bar[i] = n.skill; } // new skills fill an empty slot
       applyStats(p, false);
       emit({ e: 'talents', id: pid, tal: p.talents });
       return true;
@@ -114,8 +119,16 @@
       const p = S.players.get(pid);
       if (!p) return false;
       if (!V.nearTrainer(p.cls, p.x, p.y, 40)) { emit({ e: 'nope', id: pid, why: 'trainer' }); return false; }
-      p.talents = {}; applyStats(p, false);
+      p.talents = {}; p.bar = V.cleanBar(p.cls, p.talents, p.bar); if (!p.bar.some(Boolean)) p.bar[0] = CLASSES[p.cls].skills[0];
+      applyStats(p, false);
       emit({ e: 'talents', id: pid, tal: p.talents });
+      return true;
+    };
+    // arrange the action bar (allowed anywhere)
+    S.setBar = function (pid, bar) {
+      const p = S.players.get(pid);
+      if (!p || !Array.isArray(bar)) return false;
+      p.bar = V.cleanBar(p.cls, p.talents, bar);
       return true;
     };
     // ---------- the bounty board ----------
@@ -532,9 +545,8 @@
       },
     };
     function castSkill(p, slot) {
-      const sk = CLASSES[p.cls].skills[slot - 1], def = SKILLS[sk];
-      if (!def) return;
-      if (p.level < def.lvl) { emit({ e: 'nope', id: p.id, why: 'level', sk }); return; }
+      const sk = p.bar[slot - 1], def = SKILLS[sk];
+      if (!def || !CAST[sk]) { emit({ e: 'nope', id: p.id, why: 'empty' }); return; }
       if ((p.cds[sk] || 0) > 0) { emit({ e: 'nope', id: p.id, why: 'cd', sk }); return; }
       const cost = p.cls === 'warlord' && p.buffs.avatar > 0 ? 0 : def.cost;
       if (p.res < cost) { emit({ e: 'nope', id: p.id, why: 'res', sk }); return; }
@@ -966,8 +978,8 @@
       const b = ZONE_INFO.map((info, z) => { const e = p.bounties[z]; return info.bounties ? (e ? [e.i, e.n, e.st] : [0, 0, 0]) : 0; });
       return {
         lv: p.level, xp: R(p.xp), nx: V.xpNext(p.level), res: R(p.res), rm: p.resMax,
-        cd: CLASSES[p.cls].skills.map((sk) => R((p.cds[sk] || 0) * 10)), dcd: R(p.cdDodge * 100),
-        spd: Math.round(speedOf(p) * 10) / 10, sh: R(p.shield), k: p.kills, tp: V.talentPoints(p.level) - V.spentPoints(p.talents),
+        bar: p.bar, cd: p.bar.map((sk) => sk ? R((p.cds[sk] || 0) * 10) : 0), dcd: R(p.cdDodge * 100),
+        spd: Math.round(speedOf(p) * 10) / 10, sh: R(p.shield), k: p.kills, tp: V.pointsLeft(p.cls, p.level, p.talents),
         bf: Object.entries(p.buffs).filter(([k]) => k !== 'ambush').map(([k, v]) => [k, R(v * 10)]), bb: b, dead: R(Math.max(0, p.dead) * 10),
       };
     }

@@ -34,7 +34,7 @@ function jsonBackend(file) {
     async listChars(key) { return Object.values(db.chars).filter((c) => c.account === key).sort((a, b) => a.id - b.id); },
     async charNameTaken(nameKey) { return Object.values(db.chars).some((c) => c.nameKey === nameKey); },
     async createChar(key, name, cls) {
-      const c = { id: db.nextChar++, account: key, name, nameKey: name.toLowerCase(), cls, level: 1, xp: 0, kills: 0, talents: {}, bounties: {} };
+      const c = { id: db.nextChar++, account: key, name, nameKey: name.toLowerCase(), cls, level: 1, xp: 0, kills: 0, talents: {}, bounties: {}, bar: null };
       db.chars[c.id] = c; flush(); return c;
     },
     async deleteChar(key, id) { const c = db.chars[id]; if (c && c.account === key) { delete db.chars[id]; flush(); return true; } return false; },
@@ -59,6 +59,7 @@ function pgBackend(url) {
         name text not null, name_key text not null unique, cls text not null,
         level integer not null default 1, xp integer not null default 0, kills integer not null default 0,
         talents text not null default '{}', bounties text not null default '{}', created_at timestamptz not null default now())`);
+      await q('alter table characters add column if not exists bar text'); // null = from before the skill web
     },
     async getAccount(key) {
       const r = await q('select key, name, salt, hash, cls, kills from accounts where key = $1', [key]);
@@ -75,19 +76,19 @@ function pgBackend(url) {
       return r.rows[0] ? r.rows[0].key : null;
     },
     async listChars(key) {
-      const r = await q('select id, name, cls, level, xp, kills, talents, bounties from characters where account = $1 order by id', [key]);
-      return r.rows.map((c) => ({ ...c, talents: parse(c.talents), bounties: parse(c.bounties) }));
+      const r = await q('select id, name, cls, level, xp, kills, talents, bounties, bar from characters where account = $1 order by id', [key]);
+      return r.rows.map((c) => ({ ...c, talents: parse(c.talents), bounties: parse(c.bounties), bar: c.bar ? parse(c.bar) : null }));
     },
     async charNameTaken(nameKey) { return (await q('select 1 from characters where name_key = $1', [nameKey])).rowCount > 0; },
     async createChar(key, name, cls) {
       const r = await q('insert into characters (account, name, name_key, cls) values ($1,$2,$3,$4) on conflict do nothing returning id, name, cls, level, xp, kills',
         [key, name, name.toLowerCase(), cls]);
-      return r.rows[0] ? { ...r.rows[0], talents: {}, bounties: {} } : null;
+      return r.rows[0] ? { ...r.rows[0], talents: {}, bounties: {}, bar: null } : null;
     },
     async deleteChar(key, id) { return (await q('delete from characters where id = $1 and account = $2', [id, key])).rowCount > 0; },
     async saveChar(id, d) {
-      await q('update characters set level = $2, xp = $3, kills = $4, talents = $5, bounties = $6 where id = $1',
-        [id, d.level, d.xp, d.kills, JSON.stringify(d.talents || {}), JSON.stringify(d.bounties || {})]);
+      await q('update characters set level = $2, xp = $3, kills = $4, talents = $5, bounties = $6, bar = $7 where id = $1',
+        [id, d.level, d.xp, d.kills, JSON.stringify(d.talents || {}), JSON.stringify(d.bounties || {}), d.bar ? JSON.stringify(d.bar) : null]);
     },
   };
 }

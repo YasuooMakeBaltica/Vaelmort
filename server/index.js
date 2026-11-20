@@ -110,7 +110,8 @@ async function play(ws, c, charId) {
   if (sim.players.size >= MAX_PLAYERS) { send(ws, { t: 'error', msg: 'The realm is full right now. Try again soon.' }); return; }
   c.char = ch; c.pid = nextPid++; c.foeCache = new Map();
   const p = sim.addPlayer(c.pid, ch);
-  send(ws, { t: 'welcome', id: c.pid, name: p.name, cls: p.cls, level: p.level, talents: p.talents, x: p.x, y: p.y, seq: p.seq, foes: sim.foeList() });
+  send(ws, { t: 'welcome', id: c.pid, name: p.name, cls: p.cls, level: p.level, talents: p.talents, refunded: p.refunded ? 1 : 0, x: p.x, y: p.y, seq: p.seq, foes: sim.foeList() });
+  if (p.refunded) saveChar(c); // the skill-web refund happens once
   console.log(`+ ${p.name} (${c.acct.name}, ${sim.players.size} online)`);
 }
 
@@ -146,6 +147,7 @@ wss.on('connection', (ws) => {
       }
       if (m.t === 'in') sim.input(c.pid, m);
       else if (m.t === 'learn' && typeof m.node === 'string') { if (sim.learn(c.pid, m.node)) saveChar(c); }
+      else if (m.t === 'bar' && Array.isArray(m.bar)) { if (sim.setBar(c.pid, m.bar.slice(0, 5).map((x) => (typeof x === 'string' ? x.slice(0, 24) : null)))) saveChar(c); }
       else if (m.t === 'respec') { if (sim.respec(c.pid)) saveChar(c); }
       else if (m.t === 'accept' && Number.isInteger(m.z)) { if (sim.acceptBounty(c.pid, m.z)) saveChar(c); }
       else if (m.t === 'turnin' && Number.isInteger(m.z)) { if (sim.turnIn(c.pid, m.z)) saveChar(c); }
