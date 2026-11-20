@@ -36,8 +36,8 @@ function jsonBackend(file) {
     async getSession(tokenHash) { const s = db.sessions[tokenHash]; return s && s.expires > Date.now() ? s.key : null; },
     async listChars(key) { return Object.values(db.chars).filter((c) => c.account === key).sort((a, b) => a.id - b.id); },
     async charNameTaken(nameKey) { return Object.values(db.chars).some((c) => c.nameKey === nameKey); },
-    async createChar(key, name, cls) {
-      const c = { id: db.nextChar++, account: key, name, nameKey: name.toLowerCase(), cls, level: 1, xp: 0, kills: 0, talents: {}, bounties: {}, bar: null };
+    async createChar(key, name, cls, nameKey) {
+      const c = { id: db.nextChar++, account: key, name, nameKey: nameKey || name.toLowerCase(), cls, level: 1, xp: 0, kills: 0, talents: {}, bounties: {}, bar: null };
       db.chars[c.id] = c; flush(); return c;
     },
     async deleteChar(key, id) { const c = db.chars[id]; if (c && c.account === key) { delete db.chars[id]; flush(); return true; } return false; },
@@ -95,9 +95,9 @@ function pgBackend(url) {
       return r.rows.map((c) => ({ ...c, talents: parse(c.talents), bounties: parse(c.bounties), bar: c.bar ? parse(c.bar) : null }));
     },
     async charNameTaken(nameKey) { return (await q('select 1 from characters where name_key = $1', [nameKey])).rowCount > 0; },
-    async createChar(key, name, cls) {
+    async createChar(key, name, cls, nameKey) {
       const r = await q('insert into characters (account, name, name_key, cls) values ($1,$2,$3,$4) on conflict do nothing returning id, name, cls, level, xp, kills',
-        [key, name, name.toLowerCase(), cls]);
+        [key, name, nameKey || name.toLowerCase(), cls]);
       return r.rows[0] ? { ...r.rows[0], talents: {}, bounties: {}, bar: null } : null;
     },
     async deleteChar(key, id) { return (await q('delete from characters where id = $1 and account = $2', [id, key])).rowCount > 0; },
@@ -163,7 +163,7 @@ function createStore() {
     },
     listChars: (key) => b.listChars(key),
     charNameTaken: (name) => b.charNameTaken(name.toLowerCase()),
-    createChar: (key, name, cls) => b.createChar(key, name, cls),
+    createChar: (key, name, cls, nameKey) => b.createChar(key, name, cls, nameKey),
     deleteChar: (key, id) => b.deleteChar(key, id),
     saveChar: (id, d) => b.saveChar(id, d),
   };

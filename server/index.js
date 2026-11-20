@@ -93,15 +93,16 @@ async function signIn(ws, c, m) {
 }
 
 const charView = (ch) => ({ id: ch.id, name: ch.name, cls: ch.cls, level: ch.level, kills: ch.kills });
-async function sendChars(ws, c) { c.chars = await store.listChars(c.acct.key); send(ws, { t: 'chars', list: c.chars.map(charView), max: V.MAX_CHARS }); }
+async function sendChars(ws, c) { c.chars = await store.listChars(c.acct.key); send(ws, { t: 'chars', list: c.chars.map(charView), max: c.acct.admin ? 99 : V.MAX_CHARS }); }
 
 async function createChar(ws, c, m) {
-  const name = typeof m.name === 'string' ? m.name.trim() : '';
-  if (!V.NAME_RE.test(name)) { send(ws, { t: 'error', msg: 'Character names are 3–16 letters, numbers or underscores and start with a letter.' }); return; }
+  const admin = !!c.acct.admin; // admins: any name up to 24 characters, taken names allowed, no character limit
+  const name = typeof m.name === 'string' ? (admin ? clean(m.name).replace(/\s+/g, ' ').slice(0, 24) : m.name.trim()) : '';
+  if (admin ? !name : !V.NAME_RE.test(name)) { send(ws, { t: 'error', msg: 'Character names are 3–16 letters, numbers or underscores and start with a letter.' }); return; }
   if (!V.CLASSES[m.cls] || (V.CLASSES[m.cls].admin && !c.acct.admin)) { send(ws, { t: 'error', msg: 'Pick a class.' }); return; }
-  if ((c.chars || []).length >= V.MAX_CHARS) { send(ws, { t: 'error', msg: `You can have up to ${V.MAX_CHARS} characters. Delete one to make room.` }); return; }
-  if (await store.charNameTaken(name)) { send(ws, { t: 'error', msg: 'That character name is taken.' }); return; }
-  const ch = await store.createChar(c.acct.key, name, m.cls);
+  if (!admin && (c.chars || []).length >= V.MAX_CHARS) { send(ws, { t: 'error', msg: `You can have up to ${V.MAX_CHARS} characters. Delete one to make room.` }); return; }
+  if (!admin && await store.charNameTaken(name)) { send(ws, { t: 'error', msg: 'That character name is taken.' }); return; }
+  const ch = await store.createChar(c.acct.key, name, m.cls, admin ? name.toLowerCase() + '~' + Date.now().toString(36) : undefined);
   if (!ch) { send(ws, { t: 'error', msg: 'That character name is taken.' }); return; }
   await sendChars(ws, c);
   play(ws, c, ch.id);
@@ -113,7 +114,7 @@ async function play(ws, c, charId) {
   if (!ch) { send(ws, { t: 'error', msg: 'That character no longer exists.' }); return; }
   if (sim.players.size >= MAX_PLAYERS) { send(ws, { t: 'error', msg: 'The realm is full right now. Try again soon.' }); return; }
   c.char = ch; c.pid = nextPid++; c.foeCache = new Map();
-  const p = sim.addPlayer(c.pid, ch);
+  const p = sim.addPlayer(c.pid, Object.assign({}, ch, { admin: !!c.acct.admin }));
   send(ws, { t: 'welcome', id: c.pid, name: p.name, cls: p.cls, level: p.level, talents: p.talents, refunded: p.refunded ? 1 : 0, x: p.x, y: p.y, seq: p.seq, foes: sim.foeList() });
   if (p.refunded) saveChar(c); // the skill-web refund happens once
   console.log(`+ ${p.name} (${c.acct.name}, ${sim.players.size} online)`);

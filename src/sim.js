@@ -80,7 +80,7 @@
     }
     S.addPlayer = function (pid, ch = {}) {
       const cls = CLASSES[ch.cls] ? ch.cls : 'necromancer', sp = spawnPoint(), level = clamp(ch.level | 0 || 1, 1, V.MAX_LEVEL);
-      const p = { id: pid, name: ch.name || 'Wanderer', cls, level, xp: Math.max(0, ch.xp | 0), kills: ch.kills | 0,
+      const p = { id: pid, name: ch.name || 'Wanderer', admin: !!ch.admin, cls, level, xp: Math.max(0, ch.xp | 0), kills: ch.kills | 0,
         talents: Array.isArray(ch.bar) ? V.cleanTalents(cls, level, ch.talents) : {}, bounties: V.cleanBounties(ch.bounties),
         x: sp.x, y: sp.y, row: 0, moving: false, atk: null, cds: {}, cdDodge: 0, dodgeT: 0, inv: 1.5, crit: 0, dead: 0, lastHit: 99, lastCombat: -99,
         banner: false, buffs: {}, shield: 0, channel: null, empower: 0, lastStandT: -999, seq: 1, r: 12, zone: 0,
@@ -1016,7 +1016,7 @@
     const buffBits = (p) => (p.buffs.bulwark > 0 ? BB.bulwark : 0) | (p.buffs.avatar > 0 ? BB.avatar : 0) | (p.buffs.barkskin > 0 ? BB.barkskin : 0) |
       (p.shield > 0 ? BB.shield : 0) | (p.buffs.invis > 0 ? BB.invis : 0) | (p.channel ? BB.whirl : 0) | (p.banner ? BB.banner : 0) | (p.buffs.rally > 0 ? BB.rally : 0) | (p.empower > 0 ? BB.empowered : 0);
     const playerRow = (p) => [p.id, p.name, p.cls, R(p.x), R(p.y), p.row, p.atk ? (p.atk.skill ? 2 : 1) : 0, p.atk ? R(p.atk.t * 1000) : 0,
-      Math.ceil(p.hp), p.maxHp, p.dead > 0 ? 1 : 0, buffBits(p), p.moving ? 1 : 0, p.dodgeT > 0 ? 1 : 0, p.level, p.seq];
+      Math.ceil(p.hp), p.maxHp, p.dead > 0 ? 1 : 0, buffBits(p), p.moving ? 1 : 0, p.dodgeT > 0 ? 1 : 0, p.level, p.seq, p.admin ? 1 : 0];
     const foeFlags = (f) => (f.root > 0 ? 1 : 0) | (f.exposed > 0 ? 2 : 0) | (f.marked > 0 ? 4 : 0) | (f.stun > 0 ? 8 : 0) | (f.poison ? 16 : 0) |
       (f.slow > 0 ? 32 : 0) | (f.deathMark ? 64 : 0) | (f.blind > 0 ? 128 : 0) | (f.plagued > 0 ? 256 : 0);
     // foe rows: [id, 0] dead, [id, 2] out of view, [id, 1, ...] alive and visible

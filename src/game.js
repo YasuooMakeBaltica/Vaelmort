@@ -346,12 +346,12 @@
     if (G.lastSnap) G.snapDt = clamp(G.snapDt * 0.8 + (now - G.lastSnap) * 0.2, 0.016, 0.25);
     G.lastSnap = now;
     for (const a of s.p) {
-      const [pid, name, cls, x, y, row, atkMode, atkMs, hp, maxHp, dead, buffs, moving, dodging, level, seq] = a;
+      const [pid, name, cls, x, y, row, atkMode, atkMs, hp, maxHp, dead, buffs, moving, dodging, level, seq, admin] = a;
       seen.add(pid);
       let p = G.players.get(pid);
       if (!p) { p = { id: pid, x, y, animT: Math.random(), ghostT: 0 }; G.players.set(pid, p); }
       if (!p.move) target(p, x, y);
-      Object.assign(p, { name, cls, row, atkMode, atkT: atkMs / 1000, hp, maxHp, dead: !!dead, buffs, moving: !!moving, dodging: !!dodging, level, seq, rcv: now });
+      Object.assign(p, { name, cls, row, atkMode, atkT: atkMs / 1000, hp, maxHp, dead: !!dead, buffs, moving: !!moving, dodging: !!dodging, level, seq, admin: !!admin, rcv: now });
       if (pid === G.me && seq > L.seq && !L.move) { L.x = x; L.y = y; L.seq = seq; }
     }
     for (const pid of [...G.players.keys()]) if (!seen.has(pid)) G.players.delete(pid);
@@ -801,7 +801,7 @@
     if (b & B.empowered && Math.random() < 0.3) part({ x: h.x + rnd(-8, 8), y: h.y, z: rnd(20, 34), vz: 10, life: 0.4, max: 0.4, color: '#ffffff' });
     if (b & B.rally && Math.random() < 0.3) part({ x: h.x + rnd(-10, 10), y: h.y, z: rnd(0, 30), vz: 22, life: 0.6, max: 0.6, color: '#9cf07a' });
     addLight(x, y - 22, isMe ? 110 : 80, glow(h.cls), (isMe ? 0.9 : 0.7) * alpha);
-    if (!isMe && G.mode === 'online') tags.push([o.name, o.level, x, y - 64, glow(h.cls), o.hp / o.maxHp]);
+    if (!isMe && G.mode === 'online') tags.push([o.name, o.level, x, y - 64, glow(h.cls), o.hp / o.maxHp, null, o.admin]);
   }
 
   function render() {
@@ -970,8 +970,9 @@
       let ix = x - 10;
       for (const [bit, c] of [[4, '#d6e4f2'], [2, '#bf72f0'], [64, '#ff5a8a'], [256, '#9bd84a']]) if (f.flags & bit) { drawMark(ix, y - (named ? 15 : 7), c); ix += 7; }
     }
-    for (const [name, lv, x, y, c, hp, title] of tags) {
-      outlined(lv > 0 ? `${name} · ${lv}` : name, Math.round(x), Math.round(y), hp < 0 ? c : '#ece6d8');
+    for (const [name, lv, x, y, c, hp, title, admin] of tags) {
+      if (admin) outlined(`✦ ${name} · ${lv}`, Math.round(x), Math.round(y), '#ffd86a', false, true); // admins keep their name exactly as typed
+      else outlined(lv > 0 ? `${name} · ${lv}` : name, Math.round(x), Math.round(y), hp < 0 ? c : '#ece6d8');
       if (title) outlined(title, Math.round(x), Math.round(y) + 9, '#9a93a6');
       if (hp >= 0) { ctx.fillStyle = '#0a0810'; ctx.fillRect(Math.round(x) - 9, Math.round(y) + 2, 18, 3); ctx.fillStyle = c; ctx.fillRect(Math.round(x) - 8, Math.round(y) + 3, Math.round(16 * clamp(hp, 0, 1)), 1); }
     }
@@ -1029,8 +1030,8 @@
     ctx.fillStyle = c;
     ctx.fillRect(mx - 4, my, 2, 1); ctx.fillRect(mx + 3, my, 2, 1); ctx.fillRect(mx, my - 4, 1, 2); ctx.fillRect(mx, my + 3, 1, 2); ctx.fillRect(mx, my, 1, 1);
   }
-  function outlined(s, x, y, color, big) {
-    ctx.font = (big ? 16 : 8) + 'px Silkscreen, monospace';
+  function outlined(s, x, y, color, big, plain) {
+    ctx.font = plain ? '700 10px Inter, system-ui, sans-serif' : (big ? 16 : 8) + 'px Silkscreen, monospace';
     ctx.fillStyle = '#05040a';
     for (const [ox, oy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) ctx.fillText(s, x + ox, y + oy);
     ctx.fillStyle = color; ctx.fillText(s, x, y);
@@ -1168,7 +1169,7 @@
     const m = G.meta.heroes[L.cls], Cl = CLASSES[L.cls], r = RES[Cl.res];
     document.documentElement.style.setProperty('--glow', m.glow);
     document.documentElement.style.setProperty('--res', r.color);
-    hud.uName.textContent = L.name; hud.uClass.textContent = m.name;
+    hud.uName.textContent = L.name; hud.uClass.textContent = m.name; hud.uName.classList.toggle('plain', !!G.admin);
     drawPortrait($('portrait'), L.cls, 0);
     buildSlots();
     $('charTitle').textContent = L.name;
@@ -1668,7 +1669,7 @@
       b.addEventListener('dblclick', () => playChar(c.id));
       el.appendChild(b);
     }
-    if (list.length < V.MAX_CHARS) {
+    if (G.admin || list.length < V.MAX_CHARS) {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'citem new'; b.textContent = '+ Create a new character';
       b.setAttribute('aria-pressed', String(creating));
       b.addEventListener('click', () => { creating = true; renderChars(); });
@@ -1688,7 +1689,7 @@
         <p>${esc(Cl.blurb)}</p>
         <ul><li>${esc(Cl.passive)}</li><li><b>${esc(SKILLS[Cl.skills[0]].name)}</b>: ${esc(SKILLS[Cl.skills[0]].desc)}</li><li>${Cl.skills.length - 1} more skills to earn on the skill web, ending in <b>${esc(SKILLS[Cl.skills[Cl.skills.length - 1]].name)}</b>.</li></ul>
         <form class="form" id="createForm" novalidate>
-          <label for="newName">Name</label><input id="newName" maxlength="16" spellcheck="false" autocomplete="off" placeholder="3–16 letters, starts with a letter">
+          <label for="newName">Name</label><input id="newName" maxlength="${G.admin ? 24 : 16}" spellcheck="false" autocomplete="off" placeholder="${G.admin ? 'Any name, up to 24 characters' : '3–16 letters, starts with a letter'}">
           <div class="row" style="grid-column: 1 / -1"><button class="btn primary" type="submit" id="createBtn">Create and enter</button>${Acc.list().length ? '<button class="btn secondary" type="button" id="cancelCreate">Cancel</button>' : ''}</div>
         </form>`;
       const grid = $('clsGrid');
@@ -1704,7 +1705,7 @@
       $('createForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const name = $('newName').value.trim();
-        if (!V.NAME_RE.test(name)) { charsStatus('Names are 3–16 letters, numbers or underscores and start with a letter.', true); return; }
+        if (G.admin ? !name : !V.NAME_RE.test(name)) { charsStatus('Names are 3–16 letters, numbers or underscores and start with a letter.', true); return; }
         $('createBtn').disabled = true; charsStatus('Creating…');
         try {
           const r = await Acc.create(name, newCls);
