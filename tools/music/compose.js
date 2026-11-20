@@ -1,9 +1,31 @@
-// Vaelmort soundtrack: nine composed pieces, arranged and rendered offline into looping MP3s.
-// Usage: node compose.js [name,name,...]   (default: all)  -> ../../assets/music/<name>.mp3  (needs ffmpeg)
+// Vaelmort soundtrack: nine composed pieces, arranged into MIDI with human timing and dynamics, then played by
+// real recorded instruments (the FluidR3 General MIDI soundfont, MIT licence) through fluidsynth into looping MP3s.
+// Usage: node compose.js [name,name,...]   (default: all)  -> ../../assets/music/<name>.mp3
+// Needs: fluidsynth, ffmpeg and FluidR3_GM.sf2 (Debian/Ubuntu: apt-get install fluidsynth fluid-soundfont-gm ffmpeg).
 // Each piece is a 16-bar theme played twice: a quieter first pass, then a fuller second pass.
 'use strict';
 const fs = require('fs'), path = require('path'), { execFileSync } = require('child_process');
-const { SR, INST, Track, reverb } = require('./synth');
+const SR = 44100, SF2 = process.env.SF2 || '/usr/share/sounds/sf2/FluidR3_GM.sf2';
+let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+// instrument -> MIDI channel, General MIDI program, mix volume, reverb send, pan (0-127)
+const CH = {
+  strings: [0, 48, 100, 90, 54], choir: [1, 52, 96, 110, 74], choirOo: [2, 53, 96, 110, 64], harp: [3, 46, 104, 80, 40], cello: [4, 42, 108, 70, 56],
+  horn: [5, 60, 104, 85, 70], flute: [6, 73, 100, 85, 76], celesta: [7, 8, 96, 100, 88], bell: [8, 14, 80, 110, 96], taiko: [10, 116, 110, 60, 64],
+  timpani: [11, 47, 108, 70, 64], swell: [12, 119, 70, 90, 64], drone: [13, 49, 84, 100, 64], contrabass: [14, 43, 100, 60, 60], snare: [9, -1, 90, 50, 70],
+};
+// the arrangement below calls INST.<name>(_, time, midi, duration, velocity, pan, opts); here those calls become note events
+let EVENTS = [];
+const ev = (inst, t, m, dur, vel) => EVENTS.push({ inst, t: Math.max(0, t), m, dur: Math.max(0.05, dur), vel });
+const INST = {
+  strings: (_, t, m, d, v, p, o = {}) => ev(o.attack !== undefined && o.attack < 0.05 ? 'strings' : 'strings', t, m, d, v),
+  choir: (_, t, m, d, v, p, o = {}) => ev(o.vowel === 'oo' ? 'choirOo' : 'choir', t, m, d, v),
+  harp: (_, t, m, d, v) => ev('harp', t, m, d, v), cello: (_, t, m, d, v) => ev(m < 43 ? 'contrabass' : 'cello', t, m, d, v),
+  horn: (_, t, m, d, v) => ev('horn', t, m, d, v), flute: (_, t, m, d, v) => ev('flute', t, m, d, v), celesta: (_, t, m, d, v) => ev('celesta', t, m, d, v),
+  bell: (_, t, m, d, v) => ev('bell', t, m, Math.max(d, 2), v), taiko: (_, t, m, d, v) => ev('taiko', t, 50, 0.6, v),
+  timpani: (_, t, m, d, v) => ev('timpani', t, m, 1, v), snare: (_, t, m, d, v) => ev('snare', t, 38, 0.2, v),
+  swell: (_, t, m, d, v) => ev('swell', t, 60, d, v), drone: (_, t, m, d, v) => { ev('drone', t, m + 12, d, v * 0.7); ev('contrabass', t, m + 12, d, v * 0.6); },
+};
+class Track { constructor() { EVENTS = []; } }
 
 const NOTE = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
 const midi = (s) => { const m = /^([A-G])(#|b)?(-?\d)$/.exec(s); if (!m) throw new Error('bad note ' + s); return 12 * (+m[3] + 1) + NOTE[m[1]] + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0); };
@@ -69,7 +91,7 @@ function render(name) {
   const P = PIECES[name], beat = 60 / P.bpm, barLen = beat * P.beats, chords = P.chords.split(/\s+/), mel = parseMelody(P.melody);
   if (chords.length !== 16 || mel.length !== 16) throw new Error(name + ': need 16 bars');
   mel.forEach((b, i) => { const s = b.reduce((a, n) => a + n.d, 0); if (Math.abs(s - P.beats) > 1e-6) throw new Error(`${name} bar ${i + 1} has ${s} beats`); });
-  const loop = 32 * barLen, tail = 7, tr = new Track(loop + tail);
+  const loop = 32 * barLen, tail = 7, tr = new Track();
   const lowRoot = (pcs) => place(pcs[0], 36);
   for (let pass = 0; pass < 2; pass++) {
     const A = pass ? P.p2 : P.p1, t0 = pass * 16 * barLen;
@@ -123,15 +145,43 @@ function render(name) {
     }
     if (pass === 0) INST.swell(tr, 16 * barLen - beat * 2, 0, beat * 2, 0.5, 0); // lift into the second pass
   }
-  reverb(tr, P.wet);
-  // seamless loop: fold the tail back onto the start
-  const N = Math.round(loop * SR);
-  for (let i = N; i < tr.n; i++) { tr.L[i - N] += tr.L[i]; tr.R[i - N] += tr.R[i]; }
-  // normalise to -1 dBFS with a gentle soft clip
-  let peak = 0; for (let i = 0; i < N; i++) peak = Math.max(peak, Math.abs(tr.L[i]), Math.abs(tr.R[i]));
+  return { events: EVENTS, loop, tail, bpm: P.bpm, wet: P.wet };
+}
+
+// ---------- MIDI with a human touch ----------
+function midiFile(events, bpm, total) {
+  const PPQ = 480, tick = (sec) => Math.round(sec * bpm / 60 * PPQ), out = [];
+  const add = (t, bytes) => out.push({ t, bytes });
+  for (const [, [ch, prog, vol, rev, pan]] of Object.entries(CH)) {
+    if (prog >= 0) add(0, [0xC0 | ch, prog]);
+    add(0, [0xB0 | ch, 7, vol]); add(0, [0xB0 | ch, 91, rev]); add(0, [0xB0 | ch, 93, 30]); add(0, [0xB0 | ch, 10, pan]);
+  }
+  for (const e of events) {
+    const [ch] = CH[e.inst];
+    const late = e.inst === 'taiko' || e.inst === 'snare' || e.inst === 'timpani' ? 0.006 : 0.018; // players are never perfectly on the grid
+    const t = Math.max(0, e.t + (rnd() - 0.3) * late), v = Math.max(1, Math.min(127, Math.round(28 + e.vel * 88 + (rnd() - 0.5) * 12)));
+    add(tick(t), [0x90 | ch, e.m, v]); add(tick(t + e.dur), [0x80 | ch, e.m, 0]);
+  }
+  out.sort((a, b) => a.t - b.t || (a.bytes[0] & 0xF0) - (b.bytes[0] & 0xF0)); // note-offs (0x80) before note-ons at the same tick
+  const vlq = (n) => { const b = [n & 0x7F]; while ((n >>= 7)) b.unshift((n & 0x7F) | 0x80); return b; };
+  const us = Math.round(60e6 / bpm), data = [0, 0xFF, 0x51, 3, (us >> 16) & 255, (us >> 8) & 255, us & 255];
+  let last = 0;
+  for (const e of out) { data.push(...vlq(Math.max(0, e.t - last)), ...e.bytes); last = Math.max(last, e.t); }
+  data.push(...vlq(Math.max(0, tick(total) - last)), 0xFF, 0x2F, 0);
+  const head = Buffer.from([0x4D, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, PPQ >> 8, PPQ & 255]);
+  const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+  return Buffer.concat([head, Buffer.from('MTrk'), len, Buffer.from(data)]);
+}
+
+// read the 16-bit stereo WAV fluidsynth wrote, fold the tail onto the start so the loop is seamless, normalise
+function foldLoop(file, loopSecs) {
+  const buf = fs.readFileSync(file), dataAt = buf.indexOf('data') + 8, frames = (buf.length - dataAt) / 4, N = Math.round(loopSecs * SR);
+  const L = new Float32Array(N), R = new Float32Array(N);
+  for (let i = 0; i < frames; i++) { const k = i % N; if (i >= 2 * N) break; L[k] += buf.readInt16LE(dataAt + i * 4) / 32768; R[k] += buf.readInt16LE(dataAt + i * 4 + 2) / 32768; }
+  let peak = 0; for (let i = 0; i < N; i++) peak = Math.max(peak, Math.abs(L[i]), Math.abs(R[i]));
   const g = 0.89 / (peak || 1), pcm = Buffer.alloc(N * 4);
-  for (let i = 0; i < N; i++) for (const [c, x] of [[0, tr.L[i]], [1, tr.R[i]]]) pcm.writeInt16LE(Math.round(Math.tanh(x * g * 1.05) * 32000), i * 4 + c * 2);
-  return { pcm, N, secs: loop };
+  for (let i = 0; i < N; i++) { pcm.writeInt16LE(Math.round(Math.tanh(L[i] * g) * 32000), i * 4); pcm.writeInt16LE(Math.round(Math.tanh(R[i] * g) * 32000), i * 4 + 2); }
+  return pcm;
 }
 
 function wav(pcm) {
@@ -144,8 +194,12 @@ function wav(pcm) {
 const OUT = path.join(__dirname, '..', '..', 'assets', 'music'), TMP = path.join(require('os').tmpdir(), 'vaelmort-music');
 fs.mkdirSync(OUT, { recursive: true }); fs.mkdirSync(TMP, { recursive: true });
 for (const name of (process.argv[2] || Object.keys(PIECES).join(',')).split(',')) {
-  const t0 = Date.now(), { pcm, secs } = render(name), w = path.join(TMP, name + '.wav');
-  fs.writeFileSync(w, wav(pcm));
-  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', w, '-codec:a', 'libmp3lame', '-b:a', '96k', path.join(OUT, name + '.mp3')]);
-  console.log(name, secs.toFixed(0) + 's', ((Date.now() - t0) / 1000).toFixed(1) + 's to render', (fs.statSync(path.join(OUT, name + '.mp3')).size / 1024).toFixed(0) + ' KB');
+  const t0 = Date.now(), r = render(name), mid = path.join(TMP, name + '.mid'), raw = path.join(TMP, name + '.raw.wav'), w = path.join(TMP, name + '.wav');
+  fs.writeFileSync(mid, midiFile(r.events, r.bpm, r.loop + r.tail));
+  execFileSync('fluidsynth', ['-ni', '-q', '-g', '0.7', '-r', String(SR), '-T', 'wav', '-F', raw,
+    '-o', 'synth.reverb.room-size=0.82', '-o', 'synth.reverb.damp=0.4', '-o', 'synth.reverb.width=0.9', '-o', `synth.reverb.level=${Math.min(1, 0.5 + r.wet)}`,
+    '-o', 'synth.chorus.active=1', '-o', 'synth.chorus.level=0.8', SF2, mid], { stdio: 'ignore' });
+  fs.writeFileSync(w, wav(foldLoop(raw, r.loop)));
+  execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', w, '-codec:a', 'libmp3lame', '-b:a', '112k', path.join(OUT, name + '.mp3')]);
+  console.log(name, r.loop.toFixed(0) + 's', ((Date.now() - t0) / 1000).toFixed(1) + 's to render', (fs.statSync(path.join(OUT, name + '.mp3')).size / 1024).toFixed(0) + ' KB');
 }
