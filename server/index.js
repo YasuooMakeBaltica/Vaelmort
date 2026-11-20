@@ -122,7 +122,7 @@ async function play(ws, c, charId) {
   if (sim.players.size >= MAX_PLAYERS) { send(ws, { t: 'error', msg: 'The realm is full right now. Try again soon.' }); return; }
   c.char = ch; c.pid = nextPid++; c.foeCache = new Map();
   const p = sim.addPlayer(c.pid, Object.assign({}, ch, { admin: !!c.acct.admin }));
-  send(ws, { t: 'welcome', id: c.pid, name: p.name, cls: p.cls, level: p.level, talents: p.talents, refunded: p.refunded ? 1 : 0, x: p.x, y: p.y, seq: p.seq, foes: sim.foeList() });
+  send(ws, { t: 'welcome', id: c.pid, name: p.name, cls: p.cls, level: p.level, talents: p.talents, refunded: p.refunded ? 1 : 0, inv: p.bag, eq: p.eq, x: p.x, y: p.y, seq: p.seq, foes: sim.foeList() });
   if (p.refunded) saveChar(c); // the skill-web refund happens once
   console.log(`+ ${p.name} (${c.acct.name}, ${sim.players.size} online)`);
 }
@@ -228,6 +228,10 @@ wss.on('connection', (ws) => {
       else if (m.t === 'learn' && typeof m.node === 'string') { if (sim.learn(c.pid, m.node)) saveChar(c); }
       else if (m.t === 'bar' && Array.isArray(m.bar)) { if (sim.setBar(c.pid, m.bar.slice(0, 5).map((x) => (typeof x === 'string' ? x.slice(0, 24) : null)))) saveChar(c); }
       else if (m.t === 'respec') { if (sim.respec(c.pid)) saveChar(c); }
+      else if (m.t === 'pick' && Number.isInteger(m.id)) { if (sim.pick(c.pid, m.id)) saveChar(c); }
+      else if (m.t === 'equip' && Number.isInteger(m.i)) { if (sim.equip(c.pid, m.i)) saveChar(c); }
+      else if (m.t === 'unequip' && V.SLOTS.includes(m.slot)) { if (sim.unequip(c.pid, m.slot)) saveChar(c); }
+      else if (m.t === 'discard' && Number.isInteger(m.i)) { if (sim.discard(c.pid, m.i)) saveChar(c); }
       else if (m.t === 'trial') { if (sim.startTrial(c.pid)) saveChar(c); }
       else if (m.t === 'evolve' && typeof m.cls === 'string') { if (sim.evolve(c.pid, m.cls)) { saveChar(c); console.log(`${c.char.name} evolved into ${m.cls}`); } }
       else if (m.t === 'accept' && Number.isInteger(m.z)) { if (sim.acceptBounty(c.pid, m.z)) saveChar(c); }

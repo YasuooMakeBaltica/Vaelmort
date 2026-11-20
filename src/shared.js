@@ -381,6 +381,62 @@
     return m;
   };
 
+  // ---------- loot and gear ----------
+  // An item: { id, s: slot index, r: rarity index, lv: item level (= level needed), n: name, st: { stat: value } }.
+  // Stats use the same keys as talents (V.computeMods) and simply add to them.
+  V.SLOTS = ['weapon', 'helm', 'chest', 'gloves', 'boots', 'ring', 'amulet'];
+  V.SLOT_NAME = ['Weapon', 'Helm', 'Chest', 'Gloves', 'Boots', 'Ring', 'Amulet'];
+  V.SLOT_ICON = ['sword', 'crown', 'shield', 'paw', 'wing', 'orb', 'drop'];
+  V.RARITY = [
+    { name: 'Common', color: '#c9c2b0', affixes: 0, mult: 1.0 },
+    { name: 'Uncommon', color: '#5fd068', affixes: 1, mult: 1.1 },
+    { name: 'Rare', color: '#4d9bff', affixes: 2, mult: 1.25 },
+    { name: 'Epic', color: '#b46cff', affixes: 3, mult: 1.4 },
+    { name: 'Legendary', color: '#ff9a2e', affixes: 4, mult: 1.6 },
+  ];
+  V.INV_SIZE = 40;
+  // per-affix value at item level 1 (grows by 2% per item level), its text and the prefix it gives an item name
+  V.AFFIX = {
+    dmg: [0.02, (v) => `+${pct(v)}% damage`, 'Cruel'], hp: [0.025, (v) => `+${pct(v)}% health`, 'Stalwart'],
+    armor: [0.008, (v) => `+${pct(v)}% damage reduction`, 'Warded'], crit: [0.008, (v) => `+${pct(v)}% critical chance`, 'Keen'],
+    speed: [0.01, (v) => `+${pct(v)}% move speed`, 'Swift'], leech: [0.003, (v) => `+${pct(v)}% life steal`, 'Vampiric'],
+    resGen: [0.04, (v) => `+${pct(v)}% resource generation`, 'Focused'], execute: [0.03, (v) => `+${pct(v)}% damage to wounded enemies`, 'Merciless'],
+    thorns: [3, (v) => `+${Math.round(v)} thorns damage`, 'Spiked'], magicDmg: [0.03, (v) => `+${pct(v)}% damage to magical enemies`, 'Silvered'],
+    healPow: [0.03, (v) => `+${pct(v)}% healing`, 'Blessed'], dodgeCdr: [0.02, (v) => `-${pct(v)}% dodge cooldown`, 'Nimble'],
+    summonDmg: [0.03, (v) => `+${pct(v)}% minion damage`, 'Commanding'],
+  };
+  function pct(v) { return Math.round(v * 1000) / 10; }
+  const IMPLICIT = ['dmg', 'armor', 'hp', 'crit', 'speed', 'dmg', 'resGen']; // the stat each slot always has
+  const BASES = [['Blade', 'Axe', 'Staff', 'Dagger', 'Crossbow', 'Scepter'], ['Helm', 'Hood', 'Crown', 'Cowl'], ['Plate', 'Robe', 'Coat', 'Hauberk'],
+    ['Gauntlets', 'Gloves', 'Grips'], ['Greaves', 'Boots', 'Treads'], ['Ring', 'Band', 'Signet'], ['Amulet', 'Talisman', 'Pendant']];
+  const EPITHET = ['of the Hollow King', 'of the Warden', 'of Thornback', 'of the Drowned Matron', 'of the Frost Revenant', 'of the Last Light', 'of Vaelmort'];
+  V.affixValue = (stat, lv, r, roll) => V.AFFIX[stat][0] * (1 + lv * 0.02) * V.RARITY[r].mult * roll;
+  V.makeItem = function (lv, r, rnd = Math.random, slot) {
+    const s = slot ?? ((rnd() * V.SLOTS.length) | 0), st = {}, imp = IMPLICIT[s];
+    st[imp] = V.affixValue(imp, lv, r, 1.6 + rnd() * 0.4); // the slot's own stat is the strongest
+    const pool = Object.keys(V.AFFIX).filter((k) => k !== imp), picked = [];
+    for (let i = 0; i < V.RARITY[r].affixes && pool.length; i++) { const k = pool.splice((rnd() * pool.length) | 0, 1)[0]; picked.push(k); st[k] = V.affixValue(k, lv, r, 0.8 + rnd() * 0.4); }
+    for (const k in st) st[k] = Math.round(st[k] * 10000) / 10000;
+    const base = BASES[s][(rnd() * BASES[s].length) | 0];
+    const name = (picked.length ? V.AFFIX[picked[0]][2] + ' ' : '') + base + (r === 4 ? ' ' + EPITHET[(rnd() * EPITHET.length) | 0] : '');
+    return { id: Math.floor(rnd() * 2 ** 31).toString(36) + Date.now().toString(36).slice(-4), s, r, lv: Math.max(1, lv | 0), n: name, st };
+  };
+  // drop rolls: normal enemies rarely, elites often, bosses always (and at least Rare)
+  V.rollRarity = (rnd, boost = 0) => { const x = rnd() * 100 * (1 - boost * 0.35); return x < 0.6 ? 4 : x < 4 ? 3 : x < 15 ? 2 : x < 40 ? 1 : 0; };
+  V.gearMods = (eq) => { const m = {}; for (const k in eq || {}) { const it = eq[k]; if (it) for (const [s, v] of Object.entries(it.st)) m[s] = (m[s] || 0) + v; } return m; };
+  V.cleanItem = (it) => {
+    if (!it || typeof it !== 'object' || !(it.s >= 0 && it.s < V.SLOTS.length) || !(it.r >= 0 && it.r < V.RARITY.length)) return null;
+    const st = {}; for (const [k, v] of Object.entries(it.st || {})) if (V.AFFIX[k] && Number.isFinite(v)) st[k] = Math.max(0, Math.min(5, v * 1)) * (k === 'thorns' ? 1 : 1);
+    if (it.st && it.st.thorns) st.thorns = Math.max(0, Math.min(5000, +it.st.thorns || 0));
+    return { id: String(it.id || Math.random().toString(36).slice(2)).slice(0, 16), s: it.s | 0, r: it.r | 0, lv: Math.max(1, Math.min(V.MAX_LEVEL + 10, it.lv | 0)), n: String(it.n || 'Item').slice(0, 48), st };
+  };
+  V.cleanGear = (g) => {
+    const inv = [], eq = {};
+    if (g && Array.isArray(g.inv)) for (const it of g.inv.slice(0, V.INV_SIZE)) { const c = V.cleanItem(it); if (c) inv.push(c); }
+    if (g && g.eq) for (const k of V.SLOTS) { const c = V.cleanItem(g.eq[k]); if (c && V.SLOTS[c.s] === k) eq[k] = c; }
+    return { inv, eq };
+  };
+
   // ---------- enemies ----------
   // ai: melee | charger | ranged | tank | boss. sprite + pal pick the art; k is the pixel scale of the art.
   V.FOES = {

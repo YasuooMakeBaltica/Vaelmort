@@ -73,6 +73,7 @@
     function applyStats(p, full) {
       const Cl = CLASSES[p.cls], old = p.maxHp || 1;
       p.mods = V.computeMods(p.cls, p.talents);
+      for (const [k, v] of Object.entries(V.gearMods(p.eq))) if (typeof p.mods[k] === 'number') p.mods[k] += v; // equipped gear adds to talents
       p.maxHp = R(Cl.hp * (1 + 0.1 * (V.statLv(p.level) - 1)) * (1 + p.mods.hp));
       p.hp = full ? p.maxHp : Math.min(p.maxHp, p.hp * p.maxHp / old);
       p.power = (1 + 0.07 * (V.statLv(p.level) - 1)) * (1 + p.mods.dmg);
@@ -87,6 +88,7 @@
         aim: { a: 0, gx: sp.x, gy: sp.y, tgt: -1 }, attack: false, skillReq: 0, lastPosT: 0 };
       // characters from before the skill web keep their level but get every point back (once)
       p.refunded = !Array.isArray(ch.bar) && level > 1;
+      const gear = V.cleanGear(ch.gear); p.bag = gear.inv; p.eq = gear.eq; // (p.inv is the invulnerability timer)
       p.trial = ch.trial && typeof ch.trial === 'object' ? { n: Math.max(0, ch.trial.n | 0), done: !!ch.trial.done } : null;
       p.bar = V.cleanBar(cls, p.talents, Array.isArray(ch.bar) ? ch.bar : [CLASSES[cls].skills[0]]);
       applyStats(p, true);
@@ -104,7 +106,7 @@
       S.fields = S.fields.filter((F) => F.owner !== pid || F.kind === 'fire');
       emit({ e: 'leave', id: pid, name: p.name });
     };
-    S.charData = (pid) => { const p = S.players.get(pid); return p && { level: p.level, xp: R(p.xp), kills: p.kills, talents: p.talents, bounties: p.bounties, bar: p.bar, cls: p.cls, trial: p.trial }; };
+    S.charData = (pid) => { const p = S.players.get(pid); return p && { level: p.level, xp: R(p.xp), kills: p.kills, talents: p.talents, bounties: p.bounties, bar: p.bar, cls: p.cls, trial: p.trial, gear: { inv: p.bag, eq: p.eq } }; };
     S.learn = function (pid, node) {
       const p = S.players.get(pid);
       if (!p || !V.canLearn(p.cls, p.level, p.talents, node)) return false;
@@ -288,11 +290,61 @@
         }
         if (p.buffs.avatar > 0 && p.mods.flags.has('endlessWar')) p.buffs.avatar += 1;
       }
+      dropLoot(f);
       if (killer && killer.cls === 'necromancer' && killer.dead <= 0) {
         killer.hp = Math.min(killer.maxHp, killer.hp + killer.maxHp * 0.06);
         emit({ e: 'harvest', id: killer.id, f: f.id });
       }
     }
+    // ---------- loot: shared ground drops, anyone can pick them up ----------
+    S.loot = [];
+    function lootAt(item, x, y) {
+      if (S.loot.length > 300) S.loot.shift();
+      const a = Math.random() * Math.PI * 2, d = 10 + Math.random() * 34;
+      const L = { id: id(), it: item, x: x + Math.cos(a) * d, y: y + Math.sin(a) * d * 0.5, t: 180 };
+      S.loot.push(L);
+      emit({ e: 'drop', x: r1(L.x), y: r1(L.y), r: item.r });
+      return L;
+    }
+    function dropLoot(f) {
+      if (f.type === 'dummy') return;
+      const boss = !!f.def.boss, n = boss ? 3 : f.elite ? (Math.random() < 0.4 ? 1 + (Math.random() < 0.3 ? 1 : 0) : 0) : (Math.random() < (f.isAdd ? 0.03 : 0.07) ? 1 : 0);
+      for (let i = 0; i < n; i++) lootAt(V.makeItem(f.level, boss ? Math.max(2, V.rollRarity(Math.random, 2)) : V.rollRarity(Math.random, f.elite ? 1 : 0)), f.x, f.y);
+    }
+    const invEvent = (p) => emit({ e: 'inv', id: p.id, inv: p.bag, eq: p.eq });
+    S.pick = function (pid, lid) {
+      const p = S.players.get(pid), i = S.loot.findIndex((L) => L.id === lid);
+      if (!p || i < 0 || p.dead > 0) return false;
+      const L = S.loot[i];
+      if (gdist(p.x, p.y, L.x, L.y) > 110) { emit({ e: 'nope', id: pid, why: 'far' }); return false; }
+      if (p.bag.length >= V.INV_SIZE) { emit({ e: 'nope', id: pid, why: 'bags' }); return false; }
+      S.loot.splice(i, 1); p.bag.push(L.it);
+      emit({ e: 'picked', id: pid, name: p.name, n: L.it.n, r: L.it.r, x: r1(L.x), y: r1(L.y) });
+      invEvent(p);
+      return true;
+    };
+    S.equip = function (pid, i) {
+      const p = S.players.get(pid), it = p && p.bag[i];
+      if (!it) return false;
+      if (it.lv > p.level) { emit({ e: 'nope', id: pid, why: 'itemlevel', lv: it.lv }); return false; }
+      const slot = V.SLOTS[it.s], old = p.eq[slot];
+      p.bag.splice(i, 1); if (old) p.bag.splice(i, 0, old);
+      p.eq[slot] = it; applyStats(p, false); invEvent(p);
+      return true;
+    };
+    S.unequip = function (pid, slot) {
+      const p = S.players.get(pid), it = p && p.eq[slot];
+      if (!it) return false;
+      if (p.bag.length >= V.INV_SIZE) { emit({ e: 'nope', id: pid, why: 'bags' }); return false; }
+      delete p.eq[slot]; p.bag.push(it); applyStats(p, false); invEvent(p);
+      return true;
+    };
+    S.discard = function (pid, i) { // drops the item at your feet for anyone to take
+      const p = S.players.get(pid), it = p && p.bag[i];
+      if (!it) return false;
+      p.bag.splice(i, 1); lootAt(it, p.x, p.y); invEvent(p);
+      return true;
+    };
     function grantXp(p, n) {
       n = Math.max(1, R(n));
       if (p.level >= V.MAX_LEVEL) return;
@@ -1076,6 +1128,7 @@
     // ---------- step ----------
     S.step = function (dt) {
       S.t += dt;
+      if (S.loot.length) { for (const L of S.loot) L.t -= dt; if (S.loot[0].t <= 0) S.loot = S.loot.filter((L) => L.t > 0); }
       for (const tm of S.timers) { tm.t -= dt; if (tm.t <= 0) tm.fn(); }
       S.timers = S.timers.filter((tm) => tm.t > 0);
       for (const p of S.players.values()) stepPlayer(p, dt);
@@ -1139,7 +1192,7 @@
       if (e.id !== undefined) { const p = S.players.get(e.id); return p ? [p.x, p.y] : null; }
       return null;
     }
-    const PRIVATE = new Set(['xp', 'bounty', 'nope', 'talents', 'cast', 'trial']);
+    const PRIVATE = new Set(['xp', 'bounty', 'nope', 'talents', 'cast', 'trial', 'inv']);
     S.view = function (pid, cache, events) {
       const me = S.players.get(pid);
       if (!me) return null;
@@ -1158,6 +1211,7 @@
         m: S.minions.filter((m) => near(m.x, m.y)).map(minionRow),
         d: S.fields.filter((F) => near(F.x, F.y, F.r)).map(fieldRow),
         me: meBlock(me),
+        l: S.loot.filter((L) => near(L.x, L.y)).map((L) => [L.id, R(L.x), R(L.y), L.it.r, L.it.s, L.it.n, L.it.lv]),
         e: events.filter((e) => {
           if (e.id === pid) return true;
           if (PRIVATE.has(e.e)) return false;

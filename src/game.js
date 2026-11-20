@@ -33,7 +33,7 @@
   let wantSkill = 0, wantDodge = false;
   const chatInput = $('chatInput');
   const typing = () => document.activeElement && document.activeElement.tagName === 'INPUT';
-  const WINS = ['winTalents', 'winChar', 'winMap', 'winMenu', 'winBoard', 'winAdmin', 'winEvolve'];
+  const WINS = ['winTalents', 'winChar', 'winMap', 'winMenu', 'winBoard', 'winAdmin', 'winEvolve', 'winInv'];
   const anyWindow = () => WINS.some((id) => !$(id).hidden);
   addEventListener('keydown', (e) => {
     if (typing() || !G.started) return;
@@ -42,6 +42,7 @@
     if (k === 'escape') { if (anyWindow()) closeWindows(); else openWindow('winMenu'); return; }
     if (k === 'enter') { if (G.mode === 'online') { e.preventDefault(); openChat(); } return; }
     if (k === 'c') { toggleWindow('winChar'); return; }
+    if (k === 'i' || k === 'b') { toggleWindow('winInv'); return; }
     if (k === 'n') { toggleWindow('winTalents'); return; }
     if (k === 'm') { toggleWindow('winMap'); return; }
     if (k === 'k' && V.Snd) { const m = V.Snd.toggleMute(); say(m ? 'Sound off (K)' : 'Sound on (K)'); syncAudioUi(); return; }
@@ -61,6 +62,7 @@
     if (typing()) document.activeElement.blur();
     if (anyWindow()) closeWindows();
     setMouse(e);
+    if (e.button === 0) { const L = lootUnderMouse(); if (L) { if (G.link && G.link.pick) G.link.pick(L.id); return; } }
     if (e.button === 0) mouse.down = true;
     if (e.button === 2) wantSkill = 1;
   });
@@ -404,6 +406,13 @@
         } else if (e.name) chatLine(`${e.name} has become a ${nm}.`, 'sys');
         break;
       }
+      case 'drop': if (e.r >= 3) { G.bolts.push({ kind: 'column', x: e.x, y: e.y, t: 0, life: e.r === 4 ? 1.2 : 0.6, w: e.r === 4 ? 16 : 8 }); } break;
+      case 'picked':
+        if (G.loot) for (const [k, Lt] of G.loot) if (Lt.x === e.x && Lt.y === e.y) G.loot.delete(k);
+        if (isMe) { if (e.r >= 2) toast(V.RARITY[e.r].name, e.n); chatLine(`You picked up ${e.n} (${V.RARITY[e.r].name}).`, e.r >= 3 ? 'loot' : 'sys'); }
+        else if (e.r >= 3 && e.name) chatLine(`${e.name} found ${e.n} (${V.RARITY[e.r].name}).`, 'loot');
+        break;
+      case 'inv': if (isMe) { G.inv = e.inv; G.eq = e.eq; if (!$('winInv').hidden) renderInv(); if (!$('winChar').hidden) renderChar(); } break;
       case 'nope':
         if (!isMe) break;
         if (e.why === 'empty') say('No skill in that slot (N to open your skills)');
@@ -411,6 +420,9 @@
         else if (e.why === 'target') say('Hover an enemy to mark it');
         else if (e.why === 'trainer' && V.TRAINERS[L.cls]) say(`Visit ${V.TRAINERS[L.cls].name} to train`);
         else if (e.why === 'board') say('Walk up to the bounty board');
+        else if (e.why === 'bags') say('Your bags are full');
+        else if (e.why === 'far') say('Too far away');
+        else if (e.why === 'itemlevel') say(`Requires level ${e.lv}`);
         else if (e.why === 'bounties') say(`You can carry ${V.MAX_BOUNTIES} bounties at a time`);
         break;
       case 'talents': if (isMe) { G.talents = e.tal; if (!$('winTalents').hidden) renderTalents(); if (!$('winChar').hidden) renderChar(); } break;
@@ -454,6 +466,7 @@
     for (const a of s.s) if (!G.shots.has(a[0]) && V.Snd && a[9] !== 'knife') V.Snd.play(SHOT_SND[a[6]] || 'foeShot', a[1], a[2], {}, 0.04);
     for (const a of s.s) shots.set(a[0], { id: a[0], sx: a[1], sy: a[2], h: a[3], vx: a[4], vy: a[5], color: a[6], size: a[7], trail: a[8], kind: a[9], rcv: now, x: a[1], y: a[2] });
     G.shots = shots;
+    if (s.l) { const lm = new Map(); for (const [lid, x, y, r, sl, n, lv] of s.l) lm.set(lid, { id: lid, x, y, r, s: sl, n, lv }); G.loot = lm; }
     const mins = new Map();
     for (const a of s.m) {
       const old = G.minions.get(a[0]);
@@ -559,6 +572,10 @@
           learn(node) { send({ t: 'learn', node }); },
           setBar(bar) { send({ t: 'bar', bar }); },
           trial() { send({ t: 'trial' }); },
+          pick(id) { send({ t: 'pick', id }); },
+          equip(i) { send({ t: 'equip', i }); },
+          unequip(slot) { send({ t: 'unequip', slot }); },
+          discard(i) { send({ t: 'discard', i }); },
           evolve(cls) { send({ t: 'evolve', cls }); },
           respec() { send({ t: 'respec' }); },
           accept(z) { send({ t: 'accept', z }); },
@@ -655,6 +672,23 @@
       if (L.stepT <= 0) { L.stepT = 0.28; part({ x: L.x + rnd(-3, 3), y: L.y + 1, z: 1, vx: -ix * 10, vy: -iy * 5, vz: 8, g: 20, life: 0.4, max: 0.4, color: G.zone === 5 ? '#d8e4ee' : '#5b5463', glow: false }); }
     }
   }
+  // ---------- loot on the ground ----------
+  G.loot = new Map(); G.inv = []; G.eq = {};
+  function lootUnderMouse() {
+    const mwx = mouse.x + G.cam.x, mwy = mouse.y + G.cam.y; let best = null, bd = 26;
+    for (const L of G.loot.values()) { const d = Math.min(Math.hypot(mwx - L.x, mwy - L.y), Math.hypot(mwx - L.x, mwy - (L.y - 30)) * 1.4); if (d < bd) { bd = d; best = L; } }
+    return best;
+  }
+  function drawLoot(L, cx, cy, tags) {
+    const x = Math.round(L.x - cx), y = Math.round(L.y - cy), R = V.RARITY[L.r], h = 18 + L.r * 12, t = G.t * 2 + L.id;
+    const g = ctx.createLinearGradient(0, y - h, 0, y); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, R.color);
+    ctx.globalAlpha = 0.55 + 0.15 * Math.sin(t); ctx.fillStyle = g; ctx.fillRect(x - 1, y - h, 3, h); ctx.globalAlpha = 1; // a beam of the rarity colour
+    ctx.drawImage(V.icon(V.SLOT_ICON[L.s], R.color, { bare: true }), x - 8, y - 12 + Math.round(Math.sin(t) * 1.5), 16, 16);
+    addLight(x, y - 6, 26 + L.r * 14, R.color, 0.5 + L.r * 0.1);
+    const hover = lootUnderMouse() === L;
+    if (L.r >= 2 || hover) tags.push([L.n, -1, x, y - h - 4, R.color, -1]);
+  }
+
   function computeAim() {
     const mwx = mouse.x + G.cam.x, mwy = mouse.y + G.cam.y;
     let tgt = null, best = 1e9;
@@ -951,6 +985,7 @@
       if (px + spr.c.width < 0 || px - spr.c.width > W || py - spr.c.height > H || py + 30 < 0) continue;
       list.push({ y: p.y, k: 0, o: p });
     }
+    for (const L of G.loot.values()) if (Math.abs(L.x - cx - W / 2) < W && Math.abs(L.y - cy - H / 2) < H) list.push({ y: L.y - 1, k: 8, o: L });
     for (const n of G.npcs) if (Math.abs(n.x - cx - W / 2) < W && Math.abs(n.y - cy - H / 2) < H) list.push({ y: n.y, k: 7, o: n });
     for (const f of G.foes) if (!f.dead && !f.far) list.push({ y: f.y, k: 1, o: f });
     for (const p of G.players.values()) if (!p.dead) list.push({ y: p.id === G.me ? L.y : p.y, k: 2, o: p });
@@ -1001,6 +1036,7 @@
         drawSheet(G.foeSheets[key][anim], mm, fr, o.row || 0, o.x - cx, o.y - cy, o.flash > 0 ? 'rgba(255,255,255,0.8)' : (o.low && Math.floor(G.t * 8) % 2 ? 'rgba(60,207,151,0.5)' : null), clip, o.kind === 'wolf' ? 0.9 : 1);
         addLight(o.x - cx, o.y - cy - 30, 34, o.kind === 'wolf' ? '#a8f0d0' : '#7dffc8', 0.6);
       } else if (it.k === 6) drawBanner(o, cx, cy);
+      else if (it.k === 8) drawLoot(o, cx, cy, tags);
       else if (it.k === 7) {
         drawHero(o.cls, 'idle', o.row, frameOf('idle', G.t + o.phase, o.cls), o.x - cx, o.y - cy, 1, null);
         addLight(o.x - cx, o.y - cy - 22, 60, glow(o.cls), 0.5);
@@ -1281,7 +1317,7 @@
   }
   const tip = $('tooltip');
   function showTip(e, t) {
-    tip.innerHTML = `<h4>${esc(t.title)}</h4>${t.meta ? `<div class="meta">${esc(t.meta)}</div>` : ''}<p>${esc(t.body)}</p>${t.warn ? `<p class="warn">${esc(t.warn)}</p>` : ''}`;
+    tip.innerHTML = `<h4${t.color ? ` style="color:${t.color}"` : ''}>${esc(t.title)}</h4>${t.meta ? `<div class="meta">${esc(t.meta)}</div>` : ''}<p>${esc(t.body)}</p>${t.warn ? `<p class="warn">${esc(t.warn)}</p>` : ''}`;
     tip.hidden = false; moveTip(e);
   }
   function moveTip(e) {
@@ -1304,6 +1340,8 @@
   // what E would do right now: your own trainer, another class's trainer, or the bounty board
   function nearbyThing() {
     if (!G.started) return null;
+    let near = null, nd = 70; for (const Lt of G.loot.values()) { const d = V.gdist(L.x, L.y, Lt.x, Lt.y); if (d < nd) { nd = d; near = Lt; } }
+    if (near) return { kind: 'loot', L: near };
     if (V.nearBoard(L.x, L.y)) return { kind: 'board' };
     for (const n of G.npcs) if (V.gdist(L.x, L.y, n.x, n.y) < V.INTERACT) return { kind: 'trainer', n, own: n.cls === L.cls };
     return null;
@@ -1311,13 +1349,14 @@
   function interact() {
     const t = nearbyThing();
     if (!t) return;
+    if (t.kind === 'loot') { if (G.link && G.link.pick) G.link.pick(t.L.id); return; }
     if (t.kind === 'board') { toggleWindow('winBoard'); return; }
     if (t.own) toggleWindow(CLASSES[L.cls].base === true && L.level >= V.EVOLVE.level ? 'winEvolve' : 'winTalents');
     else say(`${t.n.name} only trains ${G.meta.heroes[t.n.cls].name}s`);
   }
   function updatePrompt() {
     const t = (G.self && !G.self.dead) ? nearbyThing() : null;
-    const txt = !t ? '' : t.kind === 'board' ? 'Bounty Board' : t.own ? `Train with ${t.n.name}` : `${t.n.name} · ${G.meta.heroes[t.n.cls].name} trainer`;
+    const txt = !t ? '' : t.kind === 'loot' ? `Pick up ${t.L.n}` : t.kind === 'board' ? 'Bounty Board' : t.own ? `Train with ${t.n.name}` : `${t.n.name} · ${G.meta.heroes[t.n.cls].name} trainer`;
     if (txt !== lastPrompt) { lastPrompt = txt; hud.prompt.hidden = !txt; hud.promptText.textContent = txt; }
     const at = V.nearTrainer(L.cls, L.x, L.y);
     if (at !== lastAtTrainer) { lastAtTrainer = at; if (!$('winTalents').hidden) renderTalents(); }
@@ -1432,6 +1471,7 @@
     if (id === 'winMap') renderWorldMap();
     if (id === 'winBoard') renderBoard();
     if (id === 'winEvolve') renderEvolve();
+    if (id === 'winInv') renderInv();
     if (id === 'winAdmin' && G.link && G.link.admin) G.link.admin('list');
     $(id).hidden = false; mouse.down = false; keys.clear();
   }
@@ -1440,11 +1480,51 @@
   document.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', closeWindows));
   $('btnChar').addEventListener('click', () => toggleWindow('winChar'));
   $('btnTalents').addEventListener('click', () => toggleWindow('winTalents'));
+  $('btnInv').addEventListener('click', () => toggleWindow('winInv'));
   $('btnMap').addEventListener('click', () => toggleWindow('winMap'));
   $('btnMenu').addEventListener('click', () => toggleWindow('winMenu'));
   $('respecBtn').addEventListener('click', () => { if (G.link) G.link.respec(); });
   $('menuChars').addEventListener('click', () => { closeWindows(); toCharSelect(); });
   $('menuLogout').addEventListener('click', () => { closeWindows(); logout(); });
+
+  // ---------- inventory ----------
+  function itemTip(it, compare) {
+    const R = V.RARITY[it.r], lines = Object.entries(it.st).map(([k, v]) => V.AFFIX[k][1](v));
+    let warn = it.lv > L.level ? `Requires level ${it.lv}` : '';
+    if (compare) { // what changes if you equip it
+      const cur = G.eq[V.SLOTS[it.s]], keys = new Set([...Object.keys(it.st), ...Object.keys((cur && cur.st) || {})]), diff = [];
+      for (const k of keys) { const d = (it.st[k] || 0) - ((cur && cur.st[k]) || 0); if (Math.abs(d) > 1e-6) diff.push((d > 0 ? '▲ ' : '▼ ') + V.AFFIX[k][1](Math.abs(d)).replace(/^[+-]/, d > 0 ? '+' : '-')); }
+      if (cur && diff.length) lines.push('— compared to equipped —', ...diff);
+    }
+    return { title: it.n, meta: `${R.name} ${V.SLOT_NAME[it.s]} · item level ${it.lv}`, body: lines.join('\n'), warn, color: R.color };
+  }
+  function itemCell(it, onClick, onRight, compare) {
+    const d = document.createElement('button'); d.type = 'button'; d.className = 'icell' + (it ? '' : ' empty');
+    if (it) {
+      const R = V.RARITY[it.r]; d.style.setProperty('--rc', R.color);
+      d.appendChild(iconEl(V.SLOT_ICON[it.s], R.color, it.lv > L.level));
+      d.addEventListener('pointerenter', (e) => showTip(e, itemTip(it, compare))); d.addEventListener('pointermove', moveTip); d.addEventListener('pointerleave', hideTip);
+      d.addEventListener('click', () => { hideTip(); onClick(); });
+      if (onRight) d.addEventListener('contextmenu', (e) => { e.preventDefault(); hideTip(); onRight(); });
+    }
+    return d;
+  }
+  function renderInv() {
+    const eqEl = $('invEquip'), bag = $('invBag'); eqEl.innerHTML = ''; bag.innerHTML = '';
+    V.SLOTS.forEach((slot, si) => {
+      const row = document.createElement('div'); row.className = 'eqrow';
+      const it = G.eq[slot];
+      row.appendChild(itemCell(it, () => G.link && G.link.unequip(slot)));
+      if (!it) { row.firstChild.appendChild(iconEl(V.SLOT_ICON[si], '#4a4358', true)); }
+      row.insertAdjacentHTML('beforeend', `<div><small>${V.SLOT_NAME[si]}</small><b style="color:${it ? V.RARITY[it.r].color : '#6b6080'}">${it ? esc(it.n) : 'Empty'}</b></div>`);
+      eqEl.appendChild(row);
+    });
+    for (let i = 0; i < V.INV_SIZE; i++) {
+      const it = G.inv[i];
+      bag.appendChild(itemCell(it, () => G.link && G.link.equip(i), async () => { if (await ask(`Drop ${it.n}?`, 'It falls to the ground where anyone can pick it up.', 'Drop', null, true) && G.link) G.link.discard(i); }, true));
+    }
+    $('invCount').textContent = `${G.inv.length} / ${V.INV_SIZE}`;
+  }
 
   // ---------- in-game dialog (instead of the browser's confirm/prompt) ----------
   // ask(title, text, okLabel, inputDefault?, danger?) -> Promise: true/false, or the typed value (null if cancelled)
@@ -1715,6 +1795,7 @@
   function renderChar() {
     if (!G.started || !G.self) return;
     const p = me(), s = G.self, Cl = CLASSES[L.cls], mods = V.computeMods(L.cls, G.talents);
+    for (const [k, v] of Object.entries(V.gearMods(G.eq))) if (typeof mods[k] === 'number') mods[k] += v;
     const power = (1 + 0.07 * (V.statLv(L.level) - 1)) * (1 + mods.dmg);
     const rows = [['Class', `${G.meta.heroes[L.cls].name} · ${Cl.role}`], ['Level', `${s.lv}${s.lv < V.MAX_LEVEL ? ` (${s.xp.toLocaleString()} / ${s.nx.toLocaleString()} XP)` : ''}`],
       ['Health', p ? `${Math.ceil(p.hp)} / ${p.maxHp}` : '—'], [RES[Cl.res].name, `${s.res} / ${s.rm}`], ['Damage', `${Math.round(power * 100)}%`],
@@ -1946,7 +2027,7 @@
     G.foes = w.foes.map(([fid, type, hx, hy, level, elite, maxHp]) => ({ id: fid, type, def: FOES[type], x: hx, y: hy, sx: hx, sy: hy, hx, hy, level, elite: !!elite, maxHp, hp: maxHp,
       state: 'idle', face: 1, flags: 0, t: 0, anim: Math.random() * 3, flash: 0, dead: false, far: G.mode === 'online', label: false, ab: 0 }));
     L.x = w.x; L.y = w.y; L.z = 0; L.seq = w.seq; L.atk = null; L.dodge = null; L.move = null; L.row = 0; L.anim = 'idle';
-    L.cls = w.cls; L.name = w.name; L.level = w.level; G.talents = w.talents || {};
+    L.cls = w.cls; L.name = w.name; L.level = w.level; G.talents = w.talents || {}; G.inv = w.inv || []; G.eq = w.eq || {}; G.loot = new Map();
     G.players.set(G.me, { id: G.me, name: w.name, cls: L.cls, x: L.x, y: L.y, sx: L.x, sy: L.y, hp: 1, maxHp: 1, dead: false, buffs: 0, level: w.level, rcv: G.t, animT: 0, ghostT: 0, seq: w.seq });
     chatLog.textContent = '';
     chatLine(`Welcome to Vaelmort, ${w.name}. Press Enter to chat.`, 'sys');
