@@ -53,7 +53,7 @@
     </section>
     <section>
       <h2>Give an item</h2>
-      <div class="row"><select id="gwho"></select><select id="gslot"></select><select id="grar"></select><input id="glv" type="number" min="1" max="200" placeholder="Lv"><input id="gname" maxlength="40" placeholder="Custom name (optional)"><button class="primary" type="button" id="give">Give</button></div>
+      <div class="row"><select id="gwho"></select><select id="gslot"></select><select id="grar"></select><input id="glv" type="number" min="1" max="200" placeholder="Lv"><select id="gbase"></select><button class="primary" type="button" id="give">Give</button></div>
     </section>
     <section>
       <h2>Announcement</h2>
@@ -124,8 +124,10 @@
   $('refresh').addEventListener('click', () => op('list'));
   $('spawn').addEventListener('click', () => { if (!$('who').value) { msg('Nobody online to spawn next to.', true); return; } op('spawn', { pid: +$('who').value, type: $('foe').value, n: +$('n').value || 1, level: +$('lv').value || 0 }); });
   $('gslot').innerHTML = ['Weapon', 'Helm', 'Chest', 'Gloves', 'Boots', 'Ring', 'Amulet'].map((n, i) => `<option value="${i}">${n}</option>`).join('');
+  const BASES = [['Blade', 'Axe', 'Staff', 'Dagger', 'Crossbow', 'Scepter'], ['Helm', 'Hood', 'Crown', 'Cowl'], ['Plate', 'Robe', 'Coat', 'Hauberk'], ['Gauntlets', 'Gloves', 'Grips'], ['Greaves', 'Boots', 'Treads'], ['Ring', 'Band', 'Signet'], ['Amulet', 'Talisman', 'Pendant']];
+  const fillB = () => { $('gbase').innerHTML = '<option value="">Any type</option>' + BASES[+$('gslot').value].map((b) => `<option>${b}</option>`).join(''); }; fillB(); $('gslot').addEventListener('change', fillB);
   $('grar').innerHTML = ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary'].map((n, i) => `<option value="${i}"${i === 4 ? ' selected' : ''}>${n}</option>`).join('');
-  $('give').addEventListener('click', () => { if (!$('gwho').value) { msg('Nobody online to give an item to.', true); return; } op('give', { pid: +$('gwho').value, slot: +$('gslot').value, rarity: +$('grar').value, level: +$('glv').value || 1, name: $('gname').value.trim() }); });
+  $('give').addEventListener('click', () => { if (!$('gwho').value) { msg('Nobody online to give an item to.', true); return; } op('give', { pid: +$('gwho').value, slot: +$('gslot').value, rarity: +$('grar').value, level: +$('glv').value || 1, base: $('gbase').value }); });
   $('announce').addEventListener('click', () => { const t = $('text').value.trim(); if (t) { op('announce', { text: t }); $('text').value = ''; } });
   $('addAdmin').addEventListener('click', () => { const n = $('acct').value.trim(); if (n) op('admin', { name: n }); });
   $('ban').addEventListener('click', () => { const n = $('acct').value.trim(); if (n && confirm(`Ban the account ${n}?`)) op('ban', { name: n }); });

@@ -310,6 +310,9 @@
       if (f.type === 'dummy') return;
       const boss = !!f.def.boss, n = boss ? 3 : f.elite ? (Math.random() < 0.4 ? 1 + (Math.random() < 0.3 ? 1 : 0) : 0) : (Math.random() < (f.isAdd ? 0.03 : 0.07) ? 1 : 0);
       for (let i = 0; i < n; i++) lootAt(V.makeItem(f.level, boss ? Math.max(2, V.rollRarity(Math.random, 2)) : V.rollRarity(Math.random, f.elite ? 1 : 0)), f.x, f.y);
+      // exclusive boss drops, each rolled on its own; zone treasures from that zone's elites
+      if (boss) for (const [key, pct] of V.BOSS_LOOT[f.type] || []) if (Math.random() * 100 < pct) lootAt(V.makeUnique(key, f.level), f.x, f.y);
+      if (f.elite && !boss) for (const [z, key, pct] of V.ZONE_LOOT) if (z === f.zone && Math.random() * 100 < pct) lootAt(V.makeUnique(key, f.level), f.x, f.y);
     }
     const invEvent = (p) => emit({ e: 'inv', id: p.id, inv: p.bag, eq: p.eq });
     S.pick = function (pid, lid) {
@@ -340,15 +343,24 @@
       return true;
     };
     // admin tool: put a fresh item straight into a player's bags
-    S.giveItem = function (pid, slot, rarity, level, name) {
+    // custom: { name, stats: { stat: value } } replaces the rolled name and stats
+    S.giveItem = function (pid, slot, rarity, level, base, custom) {
       const p = S.players.get(pid);
       if (!p) return null;
       if (p.bag.length >= V.INV_SIZE) return 'full';
-      const it = V.makeItem(level, rarity, Math.random, slot);
-      if (name) it.n = name;
+      let it = typeof base === 'string' && base.startsWith('u:') && V.UNIQUES[base.slice(2)] ? V.makeUnique(base.slice(2), level) : V.makeItem(level, rarity, Math.random, slot, base);
+      if (custom) it = V.cleanItem(Object.assign(it, { n: custom.name || it.n, st: custom.stats && Object.keys(custom.stats).length ? custom.stats : it.st }));
       p.bag.push(it); invEvent(p);
       emit({ e: 'picked', id: pid, name: p.name, n: it.n, r: it.r, x: r1(p.x), y: r1(p.y) });
       return it;
+    };
+    S.trash = function (pid, i, slot) { // destroys an item for good
+      const p = S.players.get(pid);
+      if (!p) return false;
+      if (slot) { if (!p.eq[slot]) return false; delete p.eq[slot]; applyStats(p, false); }
+      else { if (!p.bag[i]) return false; p.bag.splice(i, 1); }
+      invEvent(p);
+      return true;
     };
     S.discard = function (pid, i) { // drops the item at your feet for anyone to take
       const p = S.players.get(pid), it = p && p.bag[i];

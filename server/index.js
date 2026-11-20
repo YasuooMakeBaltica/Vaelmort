@@ -181,8 +181,14 @@ async function adminOp(ws, c, m) {
       const pid = Number.isInteger(m.pid) ? m.pid : c.pid, tc2 = clientByPid(pid)[1];
       if (!pid || !tc2) return say(c.pid ? 'That player is not online.' : 'Pick a player (or enter the world to give yourself an item).');
       const slot = Math.max(0, Math.min(V.SLOTS.length - 1, m.slot | 0)), rarity = Math.max(0, Math.min(V.RARITY.length - 1, m.rarity | 0));
-      const level = Math.max(1, Math.min(V.MAX_LEVEL, m.level | 0 || 1)), name = typeof m.name === 'string' ? clean(m.name).slice(0, 40) : '';
-      const it = sim.giveItem(pid, slot, rarity, level, name);
+      const level = Math.max(1, Math.min(V.MAX_LEVEL, m.level | 0 || 1)), base = typeof m.base === 'string' ? m.base : '';
+      let custom = null;
+      if (m.custom && typeof m.custom === 'object') { // stats arrive in display units: percentages, thorns as a number
+        const stats = {};
+        for (const [k, v] of Object.entries(m.custom.stats || {})) if (V.AFFIX[k] && Number.isFinite(+v) && +v > 0) stats[k] = k === 'thorns' ? Math.min(5000, +v) : Math.min(500, +v) / 100;
+        custom = { name: typeof m.custom.name === 'string' ? clean(m.custom.name).slice(0, 40) : '', stats };
+      }
+      const it = sim.giveItem(pid, slot, rarity, level, base, custom);
       if (!it) return say('That player is not online.');
       if (it === 'full') return say('Their bags are full.');
       saveChar(tc2); console.log(`admin ${a.name} gave ${it.n} (${V.RARITY[it.r].name}, lv ${it.lv}) to ${tc2.char.name}`);
@@ -246,6 +252,7 @@ wss.on('connection', (ws) => {
       else if (m.t === 'equip' && Number.isInteger(m.i)) { if (sim.equip(c.pid, m.i)) saveChar(c); }
       else if (m.t === 'unequip' && V.SLOTS.includes(m.slot)) { if (sim.unequip(c.pid, m.slot)) saveChar(c); }
       else if (m.t === 'discard' && Number.isInteger(m.i)) { if (sim.discard(c.pid, m.i)) saveChar(c); }
+      else if (m.t === 'trash' && (Number.isInteger(m.i) || V.SLOTS.includes(m.slot))) { if (sim.trash(c.pid, m.i, V.SLOTS.includes(m.slot) ? m.slot : null)) saveChar(c); }
       else if (m.t === 'trial') { if (sim.startTrial(c.pid)) saveChar(c); }
       else if (m.t === 'evolve' && typeof m.cls === 'string') { if (sim.evolve(c.pid, m.cls)) { saveChar(c); console.log(`${c.char.name} evolved into ${m.cls}`); } }
       else if (m.t === 'accept' && Number.isInteger(m.z)) { if (sim.acceptBounty(c.pid, m.z)) saveChar(c); }

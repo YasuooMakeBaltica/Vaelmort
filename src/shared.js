@@ -393,6 +393,7 @@
     { name: 'Rare', color: '#4d9bff', affixes: 2, mult: 1.25 },
     { name: 'Epic', color: '#b46cff', affixes: 3, mult: 1.4 },
     { name: 'Legendary', color: '#ff9a2e', affixes: 4, mult: 1.6 },
+    { name: 'Unique', color: '#e8c35a', affixes: 0, mult: 1.8 }, // named items with fixed stats: boss and zone exclusives
   ];
   V.INV_SIZE = 40;
   // per-affix value at item level 1 (grows by 2% per item level), its text and the prefix it gives an item name
@@ -407,17 +408,82 @@
   };
   function pct(v) { return Math.round(v * 1000) / 10; }
   const IMPLICIT = ['dmg', 'armor', 'hp', 'crit', 'speed', 'dmg', 'resGen']; // the stat each slot always has
-  const BASES = [['Blade', 'Axe', 'Staff', 'Dagger', 'Crossbow', 'Scepter'], ['Helm', 'Hood', 'Crown', 'Cowl'], ['Plate', 'Robe', 'Coat', 'Hauberk'],
-    ['Gauntlets', 'Gloves', 'Grips'], ['Greaves', 'Boots', 'Treads'], ['Ring', 'Band', 'Signet'], ['Amulet', 'Talisman', 'Pendant']];
+  const BASES = [
+    ['Blade', 'Longsword', 'Greatsword', 'Falchion', 'Sabre', 'Axe', 'Greataxe', 'Cleaver', 'Mace', 'Warhammer', 'Flail', 'Spear', 'Halberd', 'Scythe', 'Dagger', 'Kris', 'Stiletto',
+      'Staff', 'Rod', 'Wand', 'Scepter', 'Grimoire', 'Crossbow', 'Longbow', 'Shortbow'],
+    ['Helm', 'Greathelm', 'Barbute', 'Hood', 'Cowl', 'Crown', 'Circlet', 'Mask', 'Skullcap', 'Horned Helm'],
+    ['Plate', 'Cuirass', 'Hauberk', 'Brigandine', 'Robe', 'Vestments', 'Coat', 'Jerkin', 'Shroud', 'Mantle'],
+    ['Gauntlets', 'Gloves', 'Grips', 'Bracers', 'Handwraps', 'Claws'],
+    ['Greaves', 'Boots', 'Treads', 'Sabatons', 'Striders', 'Wraps'],
+    ['Ring', 'Band', 'Signet', 'Loop', 'Seal'],
+    ['Amulet', 'Talisman', 'Pendant', 'Locket', 'Charm', 'Relic']];
   const EPITHET = ['of the Hollow King', 'of the Warden', 'of Thornback', 'of the Drowned Matron', 'of the Frost Revenant', 'of the Last Light', 'of Vaelmort'];
+  // ---------- unique items: [key, name, slot, type, [[stat, strength]...], lore] ----------
+  // strength multiplies the normal affix value at that item level; exclusives drop only from their boss (chance in BOSS_LOOT)
+  V.UNIQUES = {};
+  const U = (key, name, slot, base, stats, lore) => { V.UNIQUES[key] = { key, name, s: V.SLOTS.indexOf(slot), base, stats, lore }; };
+  // Old Thornback (Mourning Wood)
+  U('thornhide', 'Thornhide Jerkin', 'chest', 'Jerkin', [['hp', 2.2], ['thorns', 3], ['armor', 1.2]], 'Stripped from the old wolf. The thorns never stopped growing.');
+  U('alphafang', 'Alpha\'s Fang', 'weapon', 'Kris', [['dmg', 2.4], ['crit', 1.6], ['leech', 1.4]], 'A tooth as long as a dagger, still warm.');
+  U('packcall', 'Packcaller\'s Charm', 'amulet', 'Charm', [['summonDmg', 3], ['speed', 1.4], ['resGen', 1.2]], 'Every wolf in the wood turns its head when it rattles.');
+  U('mosswalk', 'Mosswalkers', 'boots', 'Striders', [['speed', 2.4], ['dodgeCdr', 2], ['hp', 1]], 'They leave no prints.');
+  // The Drowned Matron (Drowned Graves)
+  U('tidecrown', 'Crown of the Drowned', 'helm', 'Crown', [['healPow', 2.6], ['resGen', 2], ['armor', 1.4]], 'Water still drips from it, though it has been dry for years.');
+  U('matronscythe', 'The Matron\'s Scythe', 'weapon', 'Scythe', [['dmg', 2.6], ['execute', 2.4], ['leech', 1.2]], 'It reaps what the water takes.');
+  U('gravering', 'Gravewater Band', 'ring', 'Band', [['leech', 3], ['hp', 1.4]], 'Cold enough to stop a heart. Yours keeps beating, somehow.');
+  U('shroudtide', 'Shroud of the Tide', 'chest', 'Shroud', [['hp', 2.6], ['healPow', 1.6], ['magicDmg', 1.4]], 'Woven from drowned sails.');
+  // Ember Warden (Ember Ruins)
+  U('wardenmaul', 'Warden\'s Ember Maul', 'weapon', 'Warhammer', [['dmg', 3], ['thorns', 2], ['crit', 1]], 'The old flame still burns inside the head.');
+  U('cinderplate', 'Cinderforged Plate', 'chest', 'Cuirass', [['armor', 2.6], ['hp', 2], ['thorns', 2]], 'Forged in the fire that never went out.');
+  U('emberheart', 'Emberheart Locket', 'amulet', 'Locket', [['dmg', 1.8], ['resGen', 2.4], ['crit', 1.2]], 'A coal that beats like a heart.');
+  U('ashgrip', 'Ashgrip Gauntlets', 'gloves', 'Gauntlets', [['crit', 2.4], ['dmg', 1.6], ['armor', 1]], 'Fingers of cooled slag.');
+  // Frost Revenant (Frostmire)
+  U('rimefang', 'Rimefang', 'weapon', 'Longsword', [['dmg', 2.8], ['crit', 2], ['speed', 1]], 'The blade frosts over the air it cuts.');
+  U('frostcirclet', 'Revenant\'s Circlet', 'helm', 'Circlet', [['magicDmg', 3], ['resGen', 1.8], ['crit', 1.4]], 'It whispers the names of the frozen.');
+  U('glacialtreads', 'Glacial Treads', 'boots', 'Sabatons', [['armor', 2], ['hp', 1.8], ['speed', 1.2]], 'Every step cracks the ice beneath.');
+  U('wintersigil', 'Winter\'s Seal', 'ring', 'Seal', [['crit', 2.6], ['execute', 2]], 'Pressed into wax, it leaves frost.');
+  // The Hollow King (Sundered Reach)
+  U('hollowcrown', 'The Hollow Crown', 'helm', 'Crown', [['dmg', 2.4], ['hp', 2], ['crit', 1.6], ['leech', 1.2]], 'Whoever wears it hears the void call them king.');
+  U('kingsbane', 'Kingsbane', 'weapon', 'Greatsword', [['dmg', 3.4], ['execute', 2.4], ['crit', 1.4]], 'Forged to end a king. It did.');
+  U('voidmantle', 'Mantle of Nothing', 'chest', 'Mantle', [['armor', 2.4], ['hp', 2.4], ['dodgeCdr', 2]], 'Light falls into it and does not come back.');
+  U('lastlight', 'The Last Light', 'amulet', 'Relic', [['dmg', 2], ['healPow', 2], ['hp', 1.6], ['speed', 1.4]], 'All that remains of the old sun.');
+  // zone treasures: rare drops from any elite in that zone
+  U('woodwarden', 'Woodwarden\'s Bow', 'weapon', 'Longbow', [['dmg', 2], ['speed', 1.4]], 'Strung with a hair from the oldest pine.');
+  U('hollowmask', 'Mask of the Hollow', 'helm', 'Mask', [['crit', 1.8], ['execute', 1.6]], 'Empty eyes. Empty smile.');
+  U('candlewick', 'Candlewick Wand', 'weapon', 'Wand', [['magicDmg', 2.2], ['resGen', 1.6]], 'A grave candle that will not go out.');
+  U('mourningveil', 'Mourning Veil', 'chest', 'Vestments', [['healPow', 2], ['hp', 1.4]], 'Worn by the widows of the Graves.');
+  U('slagbracers', 'Slag Bracers', 'gloves', 'Bracers', [['armor', 1.8], ['thorns', 2]], 'Still hot to the touch.');
+  U('pyreband', 'Pyre Band', 'ring', 'Loop', [['dmg', 1.6], ['crit', 1.4]], 'Cut from a funeral pyre\'s iron.');
+  U('barrowblade', 'Barrow Blade', 'weapon', 'Falchion', [['dmg', 2], ['leech', 1.6]], 'Buried with a king nobody remembers.');
+  U('moorcloak', 'Moorwind Coat', 'chest', 'Coat', [['speed', 1.8], ['dodgeCdr', 1.6], ['hp', 1]], 'The wind never stops on the moor; neither do you.');
+  U('icefang', 'Icefang Claws', 'gloves', 'Claws', [['crit', 2], ['dmg', 1.4]], 'Pried from a rime wolf\'s jaw.');
+  U('snowstriders', 'Snowstriders', 'boots', 'Wraps', [['speed', 2], ['hp', 1.2]], 'Light as falling snow.');
+  U('voidshard', 'Voidshard Signet', 'ring', 'Signet', [['dmg', 1.8], ['magicDmg', 1.8]], 'A splinter of nothing, set in silver.');
+  U('stalkerhood', 'Stalker\'s Hood', 'helm', 'Hood', [['crit', 2], ['speed', 1.4]], 'You will not see them coming. Now neither will they.');
+  // which boss drops what, and how likely (%) per kill; zone treasures: [zone index, item, % per elite kill]
+  V.BOSS_LOOT = {
+    thornback: [['alphafang', 6], ['thornhide', 8], ['packcall', 4], ['mosswalk', 10]],
+    matron: [['matronscythe', 5], ['tidecrown', 7], ['gravering', 4], ['shroudtide', 9]],
+    warden: [['wardenmaul', 5], ['cinderplate', 7], ['emberheart', 4], ['ashgrip', 9]],
+    revenant: [['rimefang', 4], ['frostcirclet', 6], ['glacialtreads', 8], ['wintersigil', 3]],
+    hollowking: [['kingsbane', 3], ['hollowcrown', 2], ['voidmantle', 5], ['lastlight', 1.5]],
+  };
+  V.ZONE_LOOT = [[1, 'woodwarden', 1.5], [1, 'hollowmask', 1.5], [2, 'candlewick', 1.5], [2, 'mourningveil', 1.5], [3, 'slagbracers', 1.5], [3, 'pyreband', 1.5],
+    [4, 'barrowblade', 1.5], [4, 'moorcloak', 1.5], [5, 'icefang', 1.5], [5, 'snowstriders', 1.5], [6, 'voidshard', 1.5], [6, 'stalkerhood', 1.5]];
+  V.makeUnique = function (key, lv) {
+    const u = V.UNIQUES[key]; if (!u) return null;
+    const st = {}; for (const [k, m] of u.stats) st[k] = Math.round(V.affixValue(k, lv, 5, m) * 10000) / 10000;
+    return { id: Math.floor(Math.random() * 2 ** 31).toString(36) + Date.now().toString(36).slice(-4), s: u.s, r: 5, lv: Math.max(1, lv | 0), n: u.name, st, u: key };
+  };
   V.affixValue = (stat, lv, r, roll) => V.AFFIX[stat][0] * (1 + lv * 0.02) * V.RARITY[r].mult * roll;
-  V.makeItem = function (lv, r, rnd = Math.random, slot) {
+  V.ITEM_BASES = BASES;
+  V.makeItem = function (lv, r, rnd = Math.random, slot, baseName) {
     const s = slot ?? ((rnd() * V.SLOTS.length) | 0), st = {}, imp = IMPLICIT[s];
     st[imp] = V.affixValue(imp, lv, r, 1.6 + rnd() * 0.4); // the slot's own stat is the strongest
     const pool = Object.keys(V.AFFIX).filter((k) => k !== imp), picked = [];
     for (let i = 0; i < V.RARITY[r].affixes && pool.length; i++) { const k = pool.splice((rnd() * pool.length) | 0, 1)[0]; picked.push(k); st[k] = V.affixValue(k, lv, r, 0.8 + rnd() * 0.4); }
     for (const k in st) st[k] = Math.round(st[k] * 10000) / 10000;
-    const base = BASES[s][(rnd() * BASES[s].length) | 0];
+    const base = BASES[s].includes(baseName) ? baseName : BASES[s][(rnd() * BASES[s].length) | 0];
     const name = (picked.length ? V.AFFIX[picked[0]][2] + ' ' : '') + base + (r === 4 ? ' ' + EPITHET[(rnd() * EPITHET.length) | 0] : '');
     return { id: Math.floor(rnd() * 2 ** 31).toString(36) + Date.now().toString(36).slice(-4), s, r, lv: Math.max(1, lv | 0), n: name, st };
   };
@@ -428,7 +494,7 @@
     if (!it || typeof it !== 'object' || !(it.s >= 0 && it.s < V.SLOTS.length) || !(it.r >= 0 && it.r < V.RARITY.length)) return null;
     const st = {}; for (const [k, v] of Object.entries(it.st || {})) if (V.AFFIX[k] && Number.isFinite(v)) st[k] = Math.max(0, Math.min(5, v * 1)) * (k === 'thorns' ? 1 : 1);
     if (it.st && it.st.thorns) st.thorns = Math.max(0, Math.min(5000, +it.st.thorns || 0));
-    return { id: String(it.id || Math.random().toString(36).slice(2)).slice(0, 16), s: it.s | 0, r: it.r | 0, lv: Math.max(1, Math.min(V.MAX_LEVEL + 10, it.lv | 0)), n: String(it.n || 'Item').slice(0, 48), st };
+    return { ...(V.UNIQUES[it.u] ? { u: it.u } : {}), id: String(it.id || Math.random().toString(36).slice(2)).slice(0, 16), s: it.s | 0, r: it.r | 0, lv: Math.max(1, Math.min(V.MAX_LEVEL + 10, it.lv | 0)), n: String(it.n || 'Item').slice(0, 48), st };
   };
   V.cleanGear = (g) => {
     const inv = [], eq = {};

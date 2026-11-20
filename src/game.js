@@ -406,7 +406,7 @@
         } else if (e.name) chatLine(`${e.name} has become a ${nm}.`, 'sys');
         break;
       }
-      case 'drop': if (e.r >= 3) { G.bolts.push({ kind: 'column', x: e.x, y: e.y, t: 0, life: e.r === 4 ? 1.2 : 0.6, w: e.r === 4 ? 16 : 8 }); } break;
+      case 'drop': if (e.r >= 3) { G.bolts.push({ kind: 'column', x: e.x, y: e.y, t: 0, life: e.r >= 4 ? 1.4 : 0.6, w: e.r >= 4 ? 18 : 8 }); if (e.r === 5) { ring(e.x, e.y, 60, V.RARITY[5].color, 0.8, 3); burst(e.x, e.y, 10, V.RARITY[5].color, 30, 120, 1, 2, { up: 2 }); } } break;
       case 'picked':
         if (G.loot) for (const [k, Lt] of G.loot) if (Lt.x === e.x && Lt.y === e.y) G.loot.delete(k);
         if (isMe) { if (e.r >= 2) toast(V.RARITY[e.r].name, e.n); chatLine(`You picked up ${e.n} (${V.RARITY[e.r].name}).`, e.r >= 3 ? 'loot' : 'sys'); }
@@ -576,6 +576,7 @@
           equip(i) { send({ t: 'equip', i }); },
           unequip(slot) { send({ t: 'unequip', slot }); },
           discard(i) { send({ t: 'discard', i }); },
+          trash(i, slot) { send({ t: 'trash', i, slot }); },
           evolve(cls) { send({ t: 'evolve', cls }); },
           respec() { send({ t: 'respec' }); },
           accept(z) { send({ t: 'accept', z }); },
@@ -1263,7 +1264,7 @@
   // ---------- HUD ----------
   const hud = {};
   for (const id of ['uName', 'uClass', 'uLevel', 'hpFill', 'hpText', 'resFill', 'resText', 'buffs', 'target', 'tLevel', 'tName', 'tTag', 'tFill', 'tText', 'tDebuffs',
-    'bossbar', 'bossName', 'bossFill', 'bossText', 'zoneLabel', 'zoneLvLabel', 'coords', 'onlineCount', 'tracker', 'bList', 'prompt', 'promptText', 'banner', 'zoneName', 'zoneSub', 'zoneLvl',
+    'bossbar', 'bossName', 'bossFill', 'bossText', 'bossLoot', 'zoneLabel', 'zoneLvLabel', 'coords', 'onlineCount', 'tracker', 'bList', 'prompt', 'promptText', 'banner', 'zoneName', 'zoneSub', 'zoneLvl',
     'xpFill', 'xpText', 'slots', 'tpBadge', 'death', 'deathText']) hud[id] = $(id);
   let bannerTimer = 0;
   function banner(name, sub, lvl, secs = 2.8) {
@@ -1443,8 +1444,17 @@
       if (hud.tDebuffs.innerHTML !== db) hud.tDebuffs.innerHTML = db;
     }
     let boss = null;
+    const hovered = G.aim && G.aim.tgt && G.aim.tgt.def.boss && !G.aim.tgt.dead ? G.aim.tgt : null;
     for (const f of G.foes) if (f.def.boss && !f.dead && !f.far && (f.state !== 'idle' || f.hp < f.maxHp) && near(f.x, f.y, 700)) { boss = f; break; }
+    if (hovered) boss = hovered;
     hud.bossbar.hidden = !boss;
+    // hovering a boss lists its exclusive drops and their chances next to its health bar
+    const lootKey = hovered ? hovered.type : '';
+    if (hud.bossLoot.dataset.k !== lootKey) {
+      hud.bossLoot.dataset.k = lootKey; hud.bossLoot.hidden = !lootKey;
+      if (lootKey) hud.bossLoot.innerHTML = '<h4>Exclusive drops</h4>' + (V.BOSS_LOOT[lootKey] || []).map(([key, pct]) => { const u = V.UNIQUES[key];
+        return `<div><b style="color:${V.RARITY[5].color}">${esc(u.name)}</b><span>${V.SLOT_NAME[u.s]} · ${pct}%</span></div>`; }).join('') + '<p>Plus 3 items of Rare or better, every kill.</p>';
+    }
     if (V.Snd) { V.Snd.music(boss ? 'boss' : V.Snd.ZONE_TRACK[Math.max(0, G.zone)] || 'town'); V.Snd.zone(Math.max(0, G.zone)); }
     if (boss) { hud.bossName.textContent = boss.def.name; hud.bossFill.style.width = (100 * clamp(boss.hp / boss.maxHp, 0, 1)).toFixed(1) + '%'; hud.bossText.textContent = `${Math.max(0, Math.ceil(boss.hp)).toLocaleString()} / ${boss.maxHp.toLocaleString()}`; }
   }
@@ -1471,7 +1481,7 @@
     if (id === 'winMap') renderWorldMap();
     if (id === 'winBoard') renderBoard();
     if (id === 'winEvolve') renderEvolve();
-    if (id === 'winInv') renderInv();
+    if (id === 'winInv') { trashMode = false; renderInv(); }
     if (id === 'winAdmin' && G.link && G.link.admin) G.link.admin('list');
     $(id).hidden = false; mouse.down = false; keys.clear();
   }
@@ -1496,6 +1506,7 @@
       for (const k of keys) { const d = (it.st[k] || 0) - ((cur && cur.st[k]) || 0); if (Math.abs(d) > 1e-6) diff.push((d > 0 ? '▲ ' : '▼ ') + V.AFFIX[k][1](Math.abs(d)).replace(/^[+-]/, d > 0 ? '+' : '-')); }
       if (cur && diff.length) lines.push('— compared to equipped —', ...diff);
     }
+    if (it.u && V.UNIQUES[it.u]) lines.push('', `“${V.UNIQUES[it.u].lore}”`);
     return { title: it.n, meta: `${R.name} ${V.SLOT_NAME[it.s]} · item level ${it.lv}`, body: lines.join('\n'), warn, color: R.color };
   }
   function itemCell(it, onClick, onRight, compare) {
@@ -1509,19 +1520,26 @@
     }
     return d;
   }
+  let trashMode = false;
+  $('invTrash').addEventListener('click', () => { trashMode = !trashMode; renderInv(); });
+  async function trashItem(it, i, slot) {
+    if (await ask(`Destroy ${it.n}?`, 'It is gone for good. This cannot be undone.', 'Destroy', null, true) && G.link) G.link.trash(i, slot);
+  }
   function renderInv() {
     const eqEl = $('invEquip'), bag = $('invBag'); eqEl.innerHTML = ''; bag.innerHTML = '';
+    $('invTrash').setAttribute('aria-pressed', String(trashMode)); $('invTrash').textContent = trashMode ? '🗑 Trash: click an item' : '🗑 Trash';
+    $('winInv').querySelector('.inv').classList.toggle('trashing', trashMode);
     V.SLOTS.forEach((slot, si) => {
       const row = document.createElement('div'); row.className = 'eqrow';
       const it = G.eq[slot];
-      row.appendChild(itemCell(it, () => G.link && G.link.unequip(slot)));
+      row.appendChild(itemCell(it, () => (trashMode ? trashItem(it, undefined, slot) : G.link && G.link.unequip(slot))));
       if (!it) { row.firstChild.appendChild(iconEl(V.SLOT_ICON[si], '#4a4358', true)); }
       row.insertAdjacentHTML('beforeend', `<div><small>${V.SLOT_NAME[si]}</small><b style="color:${it ? V.RARITY[it.r].color : '#6b6080'}">${it ? esc(it.n) : 'Empty'}</b></div>`);
       eqEl.appendChild(row);
     });
     for (let i = 0; i < V.INV_SIZE; i++) {
       const it = G.inv[i];
-      bag.appendChild(itemCell(it, () => G.link && G.link.equip(i), async () => { if (await ask(`Drop ${it.n}?`, 'It falls to the ground where anyone can pick it up.', 'Drop', null, true) && G.link) G.link.discard(i); }, true));
+      bag.appendChild(itemCell(it, () => (trashMode ? trashItem(it, i) : G.link && G.link.equip(i)), async () => { if (await ask(`Drop ${it.n}?`, 'It falls to the ground where anyone can pick it up.', 'Drop', null, true) && G.link) G.link.discard(i); }, true));
     }
     $('invCount').textContent = `${G.inv.length} / ${V.INV_SIZE}`;
   }
@@ -1611,9 +1629,27 @@
   $('giveSlot').innerHTML = V.SLOT_NAME.map((n, i) => `<option value="${i}">${n}</option>`).join('');
   $('giveRarity').innerHTML = V.RARITY.map((r, i) => `<option value="${i}"${i === 4 ? ' selected' : ''}>${r.name}</option>`).join('');
   $('giveWho').innerHTML = '<option value="">Yourself</option>';
-  $('giveBtn').addEventListener('click', () => {
-    if (!G.link) return; const who = $('giveWho').value;
-    G.link.admin('give', { pid: who ? +who : undefined, slot: +$('giveSlot').value, rarity: +$('giveRarity').value, level: +$('giveLevel').value || L.level, name: $('giveName').value.trim() });
+  const fillBases = () => { const sl = +$('giveSlot').value; $('giveBase').innerHTML = '<option value="">Any type</option>' + V.ITEM_BASES[sl].map((b) => `<option>${b}</option>`).join('')
+    + Object.values(V.UNIQUES).filter((u) => u.s === sl).map((u) => `<option value="u:${u.key}">★ ${esc(u.name)}</option>`).join(''); };
+  fillBases(); $('giveSlot').addEventListener('change', fillBases);
+  const giveArgs = () => { const who = $('giveWho').value; return { pid: who ? +who : undefined, slot: +$('giveSlot').value, rarity: +$('giveRarity').value, level: +$('giveLevel').value || L.level, base: $('giveBase').value }; };
+  $('giveBtn').addEventListener('click', () => { if (G.link) G.link.admin('give', giveArgs()); });
+  // custom equipment: pick exactly the stats you want
+  const STAT_LABEL = { dmg: 'Damage %', hp: 'Health %', armor: 'Damage reduction %', crit: 'Critical chance %', speed: 'Move speed %', leech: 'Life steal %', resGen: 'Resource generation %',
+    execute: 'Damage to wounded %', thorns: 'Thorns (flat damage)', magicDmg: 'Damage vs magic %', healPow: 'Healing %', dodgeCdr: 'Dodge cooldown reduction %', summonDmg: 'Minion damage %' };
+  const addStatRow = (k = '', v = '') => {
+    const r = document.createElement('div'); r.className = 'row';
+    r.innerHTML = `<select aria-label="Stat"><option value="">— stat —</option>${Object.entries(STAT_LABEL).map(([key, l]) => `<option value="${key}"${key === k ? ' selected' : ''}>${l}</option>`).join('')}</select><input type="number" min="0" step="0.1" placeholder="value" value="${v}" aria-label="Value"><button class="x" type="button" aria-label="Remove stat">✕</button>`;
+    r.querySelector('button').addEventListener('click', () => r.remove());
+    $('customStats').appendChild(r);
+  };
+  $('customBtn').addEventListener('click', () => { const pnl = $('customPanel'); pnl.hidden = !pnl.hidden; if (!pnl.hidden && !$('customStats').children.length) { addStatRow('dmg', 25); addStatRow('crit', 10); } });
+  $('customAdd').addEventListener('click', () => addStatRow());
+  $('customGive').addEventListener('click', () => {
+    if (!G.link) return; const stats = {};
+    for (const r of $('customStats').children) { const k = r.querySelector('select').value, v = +r.querySelector('input').value; if (k && v > 0) stats[k] = v; }
+    if (!Object.keys(stats).length) { $('adminMsg').textContent = 'Add at least one stat.'; return; }
+    G.link.admin('give', Object.assign(giveArgs(), { custom: { name: $('customName').value.trim(), stats } }));
   });
   $('adminRefresh').addEventListener('click', () => G.link && G.link.admin('list'));
   $('btnAdmin').addEventListener('click', () => toggleWindow('winAdmin'));
