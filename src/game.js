@@ -10,6 +10,10 @@
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   const view = $('view'), ctx = view.getContext('2d');
+  // names, labels and damage numbers are drawn on their own full-resolution layer, so they stay sharp
+  const tview = document.createElement('canvas'), lblCtx = tview.getContext('2d'); tview.id = 'tview'; view.after(tview);
+  const DPR = () => Math.min(2, window.devicePixelRatio || 1);
+  let labels = [];
   const light = document.createElement('canvas'), lctx = light.getContext('2d');
   const tmp = document.createElement('canvas'); tmp.width = tmp.height = 256; const tctx = tmp.getContext('2d');
   const mini = $('minimap'), mctx = mini.getContext('2d');
@@ -33,7 +37,7 @@
   let wantSkill = 0, wantDodge = false;
   const chatInput = $('chatInput');
   const typing = () => document.activeElement && document.activeElement.tagName === 'INPUT';
-  const WINS = ['winTalents', 'winChar', 'winMap', 'winMenu', 'winBoard', 'winAdmin', 'winEvolve', 'winInv'];
+  const WINS = ['winTalents', 'winChar', 'winMap', 'winMenu', 'winBoard', 'winAdmin', 'winEvolve', 'winInv', 'winDungeon', 'winParty'];
   const anyWindow = () => WINS.some((id) => !$(id).hidden);
   addEventListener('keydown', (e) => {
     if (typing() || !G.started) return;
@@ -44,7 +48,9 @@
     if (k === 'c') { toggleWindow('winChar'); return; }
     if (k === 'i' || k === 'b') { toggleWindow('winInv'); return; }
     if (k === 'n') { toggleWindow('winTalents'); return; }
-    if (k === 'm') { toggleWindow('winMap'); return; }
+    if (k === 'm') { if (G.dun) say('No map down here'); else toggleWindow('winMap'); return; }
+    if (k === 'p') { toggleWindow('winParty'); return; }
+    if (k === 't') { if (!e.repeat && G.link && G.link.recall) G.link.recall(); return; }
     if (k === 'k' && V.Snd) { const m = V.Snd.toggleMute(); say(m ? 'Sound off (K)' : 'Sound on (K)'); syncAudioUi(); return; }
     if (k === 'f8' && G.admin) { e.preventDefault(); toggleWindow('winAdmin'); return; }
     if (k === 'e') { if (!e.repeat) interact(); return; }
@@ -69,7 +75,7 @@
     setMouse(e);
     if (e.button === 0) { const L = lootUnderMouse(); if (L) { if (G.link && G.link.pick) G.link.pick(L.id); return; } }
     if (e.button === 0) mouse.down = true;
-    if (e.button === 2) wantSkill = 1;
+    if (e.button === 2) { const p = G.mode === 'online' && playerUnderMouse(); if (p) { playerMenu(p, e); return; } wantSkill = 1; }
   });
   addEventListener('pointerup', (e) => { if (e.button === 0) mouse.down = false; });
   view.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -131,6 +137,8 @@
       case 'fizzle': return S.play('fizzle', x, y, {}, 0.06);
       case 'hurt': if (isMe) S.play('hurt'); return;
       case 'respawn': if (isMe) S.play('respawn'); return;
+      case 'recall': return S.play('learn', x, y);
+      case 'recalled': return S.play('respawn', x, y);
       case 'xp': if (isMe) S.play('xp', undefined, undefined, {}, 0.12); return;
       case 'levelup': if (isMe) S.play('levelup'); return;
       case 'bounty': if (isMe) S.play(e.acc ? 'bountyTake' : e.ready ? 'bountyReady' : e.done ? 'bountyDone' : 'xp'); return;
@@ -140,6 +148,8 @@
       case 'drop': if (e.r >= 4) S.play('lightKill', x, y); return;
       case 'harvest': return S.play('soulShot', x, y, {}, 0.2);
       case 'nuke': return S.play('starrNova');
+      case 'dclear': return S.play('levelup');
+      case 'dwipe': return S.play('nope');
       case 'cast': if (pl && SKILLS[e.sk]) S.play(SKILLS[e.sk].ult ? 'castUlt' : SKILL_SCHOOL[e.sk] || 'castMight', pl.x, pl.y, {}, 0.05); return;
       case 'buff': return S.play(BUFF_SND[e.b] || 'shieldBuff', x, y);
       case 'evolve': return S.play('evolve', x, y);
@@ -156,8 +166,8 @@
     const foe = e.f !== undefined ? G.foes[e.f] : null;
     sound(e, pl, foe, isMe);
     switch (e.e) {
-      case 'join': if (G.mode === 'online' && !isMe && e.name) chatLine(`${e.name} entered Vaelmort`, 'sys'); break;
-      case 'leave': if (G.mode === 'online' && e.name) chatLine(`${e.name} left`, 'sys'); break;
+      case 'join': if (G.mode === 'online' && !isMe && e.name) chatLine(e.q ? (G.dun ? `${e.name} entered the dungeon` : `${e.name} came back from a dungeon`) : `${e.name} entered Vaelmort`, 'sys'); break;
+      case 'leave': if (G.mode === 'online' && e.name) chatLine(e.q ? (G.dun ? `${e.name} left the dungeon` : `${e.name} went into a dungeon`) : `${e.name} left`, 'sys'); break;
       case 'dodge':
         if (!pl || isMe) break;
         if (pl.cls === 'lightborn') { sigil(pl.x, pl.y, true); setTimeout(() => { const q = G.players.get(e.id); if (q) sigil(q.x, q.y, false); }, 170); }
@@ -320,6 +330,25 @@
         if (isMe) { L.atk = null; L.dodge = null; L.move = null; }
         else if (G.mode === 'online') { const p = G.players.get(e.id); if (p) chatLine(`${p.name} has fallen.`, 'sys'); }
         break;
+      case 'dlife': {
+        const p = G.players.get(e.id), w = (n) => `${n} ${n === 1 ? 'life' : 'lives'}`;
+        if (isMe) chatLine(e.n > 0 ? `You have ${w(e.n)} left in this dungeon.` : 'You are out of lives. You can watch your party, or press Leave dungeon.', 'loot');
+        else if (p) chatLine(e.n > 0 ? `${p.name} has ${w(e.n)} left.` : `${p.name} is out of lives.`, 'sys');
+        break;
+      }
+      case 'found': if (isMe) { const D = V.DUNGEONS[e.z]; banner('Dungeon Discovered', D.name, D.sub, 4); chatLine(`You discovered ${D.name}. It is marked on your map now.`, 'loot'); if (V.Snd) V.Snd.play('bountyReady'); } break;
+      case 'recall': if (isMe) { G.recallT = 0; G.recallMax = e.t; $('castbar').hidden = false; chatLine('Returning to Vaelmort Gate… hold still.', 'sys'); } if (pl) ring(pl.x, pl.y, 40, '#3ccf97', 0.8, 2); break;
+      case 'recallx': if (isMe) { G.recallMax = 0; $('castbar').hidden = true; say('Return interrupted'); } break;
+      case 'recalled':
+        if (isMe) { G.recallMax = 0; $('castbar').hidden = true; L.x = e.x; L.y = e.y; L.move = null; L.atk = null; L.dodge = null; G.flash = 0.35; }
+        ring(e.x, e.y, 70, '#3ccf97', 0.7, 3); burst(e.x, e.y, 30, '#9cf5d2', 26, 90, 0.9);
+        G.bolts.push({ kind: 'column', x: e.x, y: e.y, t: 0, life: 0.8, w: 14 });
+        break;
+      case 'dclear':
+        banner('Dungeon Cleared', `${V.DUNGEONS[e.zone].name} · ${V.DUN_MODES[e.mode].name}`, 'Leave through the portal at the entrance', 4.5);
+        chatLine(`${V.DUNGEONS[e.zone].name} cleared on ${V.DUN_MODES[e.mode].name}! Leave through the portal at the entrance.`, 'loot'); G.flash = 0.5;
+        break;
+      case 'dwipe': banner('Your party has fallen', G.dun ? V.DUNGEONS[G.dun.zone].name : '', 'Returning to the gate…', 4); break;
       case 'respawn':
         ring(e.x, e.y, 60, pc, 0.6, 2); burst(e.x, e.y, 20, pc, 24, 70, 0.8);
         if (isMe) { L.x = e.x; L.y = e.y; L.seq = e.seq; L.atk = null; L.dodge = null; L.move = null; }
@@ -448,6 +477,8 @@
         else if (e.why === 'target') say('Hover an enemy to mark it');
         else if (e.why === 'trainer' && V.TRAINERS[L.cls]) say(`Visit ${V.TRAINERS[L.cls].name} to train`);
         else if (e.why === 'board') say('Walk up to the bounty board');
+        else if (e.why === 'recalldun') say('Leave through the dungeon exit');
+        else if (e.why === 'recallcd') say(`Return ready in ${e.s}s`);
         else if (e.why === 'bags') say('Your bags are full');
         else if (e.why === 'far') say('Too far away');
         else if (e.why === 'itemlevel') say(`Requires level ${e.lv}`);
@@ -564,7 +595,10 @@
             if (m.t === 'error') { if (resolve(m)) return; if (!settled) settle(bad, new Error(m.msg)); else if (G.started) chatLine(m.msg, 'sys'); else charsStatus(m.msg, true); return; }
             if (m.t === 'welcome') { resolve(m); return; }
             if (m.t === 's') { if (G.started && G.mode === 'online') { try { applySnap(m); } catch (err) { reportError(err, 'update'); } } return; }
-            if (m.t === 'chat') chatLine(m.text, m.sys ? 'sys' : '', m.name);
+            if (m.t === 'map') { if (G.started) { try { enterMap(m); } catch (err) { reportError(err, 'map'); } } return; }
+            if (m.t === 'party') { G.party = m.id ? m : null; renderParty(); return; }
+            if (m.t === 'pinvite') { gotInvite(m); return; }
+            if (m.t === 'chat') chatLine(m.text, m.sys ? 'sys' : m.party ? 'party' : '', m.name);
           };
           ws.onclose = () => {
             settle(bad, new Error('The server closed the connection.'));
@@ -601,6 +635,7 @@
           setBar(bar) { send({ t: 'bar', bar }); },
           trial() { send({ t: 'trial' }); },
           nuke() { send({ t: 'nuke' }); },
+          recall() { send({ t: 'recall' }); },
           pick(id) { send({ t: 'pick', id }); },
           equip(i) { send({ t: 'equip', i }); },
           unequip(slot) { send({ t: 'unequip', slot }); },
@@ -613,6 +648,14 @@
           abandon(z) { send({ t: 'abandon', z }); },
           chat(textMsg) { send({ t: 'chat', text: textMsg }); },
           admin(op, args) { send(Object.assign({ t: 'admin', op }, args)); },
+          invite(who) { send(Object.assign({ t: 'pinvite' }, typeof who === 'number' ? { pid: who } : { name: who })); },
+          acceptInvite(from) { send({ t: 'paccept', from }); },
+          declineInvite(from) { send({ t: 'pdecline', from }); },
+          leaveParty() { send({ t: 'pleave' }); },
+          kick(pid) { send({ t: 'pkick', pid }); },
+          promote(pid) { send({ t: 'ppromote', pid }); },
+          dungeon(zone, mode) { send({ t: 'dungeon', zone, mode }); },
+          leaveDungeon() { send({ t: 'dleave' }); },
           leave() { const done = waitFor(['chars']); send({ t: 'leave' }); return done; },
           close() {},
         };
@@ -1040,7 +1083,9 @@
       const o = it.o;
       if (it.k === 0) {
         const s = G.spr[o.type][o.v];
-        ctx.drawImage(s.c, Math.round(o.x - cx - s.ax), Math.round(o.y - cy - s.ay));
+        // animated props: the phase rolls across the map, so wind moves through forests in waves
+        if (s.frames) { const fr = ((Math.floor(G.t * 7 - (o.tx + o.ty) * 0.45) % s.frames) + s.frames) % s.frames; ctx.drawImage(s.c, fr * s.w, 0, s.w, s.h, Math.round(o.x - cx - s.ax), Math.round(o.y - cy - s.ay), s.w, s.h); } // animated (3D-rendered loop)
+        else ctx.drawImage(s.c, Math.round(o.x - cx - s.ax), Math.round(o.y - cy - s.ay));
         const Lt = V.PROPS[o.type].light;
         if (o.type === 'brazier') {
           const fx_ = o.x - cx - s.ax + s.fire[0], fy = o.y - cy - s.ay + s.fire[1];
@@ -1051,8 +1096,9 @@
           }
           if (Math.random() < 0.15) part({ x: o.x + rnd(-4, 4), y: o.y, z: s.ay - s.fire[1] + 4, vx: rnd(-5, 5), vz: rnd(20, 36), life: rnd(0.8, 1.4), max: 1.2, color: '#ffb23d' });
           addLight(fx_, fy, Lt[1] * (0.92 + Math.sin(G.t * 11 + o.tx) * 0.05 + Math.random() * 0.05), Lt[0], Lt[2]);
-        } else if (o.type === 'obelisk') addLight(o.x - cx, o.y - cy - 70, Lt[1] * (0.9 + 0.1 * Math.sin(G.t * 1.7)), Lt[0], Lt[2]);
+        } else if (o.type === 'obelisk') addLight(o.x - cx - (s.glow ? s.ax - s.glow[0] : 0), o.y - cy - (s.glow ? s.ay - s.glow[1] : 70), Lt[1] * (0.9 + 0.1 * Math.sin(G.t * 1.7)), Lt[0], Lt[2]); // light from the crystal core
         else if (o.type === 'lamp') addLight(o.x - cx - s.ax + s.glow[0], o.y - cy - s.ay + s.glow[1], Lt[1] * (0.95 + Math.random() * 0.05), Lt[0], Lt[2]);
+        else if (o.type === 'dgate' || o.type === 'portal' || o.type === 'dentry') drawGate(o, s, cx, cy, Lt, tags);
         else if (o.type === 'board') { const ready = G.self && (G.self.bb || []).some((b) => b && b[2] === 2); tags.push([(ready ? '! ' : '') + 'Bounty Board', 0, o.x - cx, o.y - cy - 54, ready ? '#ffd84a' : '#e2c781', -1]); }
         else if (Lt) addLight(o.x - cx, o.y - cy - 10, Lt[1], Lt[0], Lt[2]);
       } else if (it.k === 1) drawFoe(o, cx, cy);
@@ -1177,6 +1223,7 @@
       ctx.globalAlpha = 1;
     }
     drawReticle(cx, cy);
+    drawLabels();
   }
   function drawShot(o, cx, cy) {
     const x = Math.round(o.x - cx), y = Math.round(o.y - cy - o.h), sp = Math.hypot(o.vx, o.vy) || 1, ux = o.vx / sp, uy = o.vy / sp;
@@ -1224,11 +1271,21 @@
     ctx.fillStyle = c;
     ctx.fillRect(mx - 4, my, 2, 1); ctx.fillRect(mx + 3, my, 2, 1); ctx.fillRect(mx, my - 4, 1, 2); ctx.fillRect(mx, my + 3, 1, 2); ctx.fillRect(mx, my, 1, 1);
   }
+  // queue a label in game pixels; drawLabels paints them sharp at the end of the frame
   function outlined(s, x, y, color, big, plain) {
-    ctx.font = plain ? '700 10px Inter, system-ui, sans-serif' : (big ? 16 : 8) + 'px Silkscreen, monospace';
-    ctx.fillStyle = '#05040a';
-    for (const [ox, oy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) ctx.fillText(s, x + ox, y + oy);
-    ctx.fillStyle = color; ctx.fillText(s, x, y);
+    labels.push({ s, x, y, color, big, plain, align: ctx.textAlign, base: ctx.textBaseline, alpha: ctx.globalAlpha });
+  }
+  function drawLabels() {
+    const k = S * DPR(), g = lblCtx;
+    g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, tview.width, tview.height); g.lineJoin = 'round';
+    for (const l of labels) {
+      const px = Math.round((l.big ? 18 : l.plain ? 13 : 12.5) * DPR());
+      g.font = `${l.big ? 800 : 700} ${px}px Inter, system-ui, sans-serif`;
+      g.textAlign = l.align; g.textBaseline = l.base === 'alphabetic' ? 'alphabetic' : l.base; g.globalAlpha = l.alpha;
+      g.lineWidth = 3.2 * DPR(); g.strokeStyle = 'rgba(5,4,10,0.92)'; g.strokeText(l.s, l.x * k, l.y * k);
+      g.fillStyle = l.color; g.fillText(l.s, l.x * k, l.y * k);
+    }
+    g.globalAlpha = 1; labels = [];
   }
   // draw one frame of a sprite sheet with its anchor at (x, y); clip hides the bottom part (rising from the ground)
   function drawSheet(img, m, fr, row, x, y, tint, clip = 0, alpha = 1) {
@@ -1375,6 +1432,8 @@
     let near = null, nd = 70; for (const Lt of G.loot.values()) { const d = V.gdist(L.x, L.y, Lt.x, Lt.y); if (d < nd) { nd = d; near = Lt; } }
     if (near) return { kind: 'loot', L: near };
     if (V.nearBoard(L.x, L.y)) return { kind: 'board' };
+    if (G.dun) { if (V.nearExit(L.x, L.y)) return { kind: 'exit' }; }
+    else { const z = V.nearGate(L.x, L.y); if (z) return { kind: 'gate', z }; }
     for (const n of G.npcs) if (V.gdist(L.x, L.y, n.x, n.y) < V.INTERACT) return { kind: 'trainer', n, own: n.cls === L.cls };
     return null;
   }
@@ -1383,16 +1442,19 @@
     if (!t) return;
     if (t.kind === 'loot') { if (G.link && G.link.pick) G.link.pick(t.L.id); return; }
     if (t.kind === 'board') { toggleWindow('winBoard'); return; }
+    if (t.kind === 'gate') { G.gateZ = t.z; toggleWindow('winDungeon'); return; }
+    if (t.kind === 'exit') { ask('Leave the dungeon?', G.self && G.self.dc ? 'The dungeon is cleared. Head back to the world.' : 'You can come back while your party is still inside and you have lives left.', 'Leave').then((ok) => { if (ok && G.link) G.link.leaveDungeon(); }); return; }
     if (t.own) toggleWindow(CLASSES[L.cls].base === true && L.level >= V.EVOLVE.level ? 'winEvolve' : 'winTalents');
     else say(`${t.n.name} only trains ${G.meta.heroes[t.n.cls].name}s`);
   }
   function updatePrompt() {
     const t = (G.self && !G.self.dead) ? nearbyThing() : null;
-    const txt = !t ? '' : t.kind === 'loot' ? `Pick up ${t.L.n}` : t.kind === 'board' ? 'Bounty Board' : t.own ? `Train with ${t.n.name}` : `${t.n.name} · ${G.meta.heroes[t.n.cls].name} trainer`;
+    const txt = !t ? '' : t.kind === 'loot' ? `Pick up ${t.L.n}` : t.kind === 'board' ? 'Bounty Board' : t.kind === 'gate' ? `Enter ${V.DUNGEONS[t.z].name}` : t.kind === 'exit' ? 'Leave the dungeon' : t.own ? `Train with ${t.n.name}` : `${t.n.name} · ${G.meta.heroes[t.n.cls].name} trainer`;
     if (txt !== lastPrompt) { lastPrompt = txt; hud.prompt.hidden = !txt; hud.promptText.textContent = txt; }
     const at = V.nearTrainer(L.cls, L.x, L.y);
     if (at !== lastAtTrainer) { lastAtTrainer = at; if (!$('winTalents').hidden) renderTalents(); }
     if (!$('winBoard').hidden && !V.nearBoard(L.x, L.y, 60)) closeWindows();
+    if (!$('winDungeon').hidden && (G.dun || V.nearGate(L.x, L.y, 60) !== G.gateZ)) closeWindows();
   }
   function renderBoard() {
     const s = G.self; if (!s) return;
@@ -1444,7 +1506,9 @@
     hud.tpBadge.hidden = !(s.tp > 0); hud.tpBadge.textContent = s.tp;
     const z = Math.max(0, G.zone), zi = ZONE_INFO[z];
     const camp = V.inCamp(L.x, L.y) ? G.npcs.find((n) => V.gdist(L.x, L.y, n.x, n.y) < V.CAMP_R) : null, zk = camp ? 'c' + camp.cls : z;
-    if (lastZoneLabel !== zk) { lastZoneLabel = zk; hud.zoneLabel.textContent = camp ? camp.camp : zi.name; hud.zoneLvLabel.textContent = zi.safe || camp ? 'Safe' : `Lv ${zi.lv[0]}–${zi.lv[1]}`; }
+    if (G.dun) { const dk = 'd' + G.dun.zone + G.dun.mode; if (lastZoneLabel !== dk) { lastZoneLabel = dk; hud.zoneLabel.textContent = V.DUNGEONS[G.dun.zone].name; hud.zoneLvLabel.textContent = V.DUN_MODES[G.dun.mode].name; } }
+    else if (lastZoneLabel !== zk) { lastZoneLabel = zk; hud.zoneLabel.textContent = camp ? camp.camp : zi.name; hud.zoneLvLabel.textContent = zi.safe || camp ? 'Safe' : `Lv ${zi.lv[0]}–${zi.lv[1]}`; }
+    updateDunBar(s);
     const [tx, ty] = V.toTile(L.x, L.y); hud.coords.textContent = `${Math.floor(tx)}, ${Math.floor(ty)}`;
     hud.onlineCount.hidden = G.mode !== 'online'; if (G.mode === 'online') hud.onlineCount.textContent = `${G.online} online`;
     const bkey = JSON.stringify(s.bb) + JSON.stringify(s.tr);
@@ -1461,8 +1525,10 @@
       if (!$('winEvolve').hidden) renderEvolve();
     }
     updatePrompt();
-    hud.death.hidden = !p.dead;
-    if (p.dead) hud.deathText.textContent = `Rising at Vaelmort Gate in ${Math.max(1, Math.ceil(s.dead / 10))}…`;
+    const spect = G.dun && s.dl === 0;
+    hud.death.hidden = !p.dead || spect; $('spectate').hidden = !(p.dead && spect);
+    if (p.dead && !spect) hud.deathText.textContent = G.dun ? `Rising at the entrance in ${Math.max(1, Math.ceil(s.dead / 10))}… · ${s.dl} ${s.dl === 1 ? 'life' : 'lives'} left` : `Rising at Vaelmort Gate in ${Math.max(1, Math.ceil(s.dead / 10))}…`;
+    if (p.dead && spect) { const e = G.players.get(s.sp); $('spectText').textContent = e ? `Out of lives · watching ${e.name}` : 'Out of lives'; }
     if (G.aim && G.aim.tgt) { G.target = G.aim.tgt; G.targetT = G.t; }
     const T = G.target && !G.target.dead && !G.target.far && G.t - G.targetT < 6 ? G.target : null;
     hud.target.hidden = !T;
@@ -1489,17 +1555,67 @@
     if (V.Snd) { V.Snd.music(boss ? 'boss' : V.Snd.ZONE_TRACK[Math.max(0, G.zone)] || 'town'); V.Snd.zone(Math.max(0, G.zone)); }
     if (boss) { hud.bossName.textContent = boss.def.name; hud.bossFill.style.width = (100 * clamp(boss.hp / boss.maxHp, 0, 1)).toFixed(1) + '%'; hud.bossText.textContent = `${Math.max(0, Math.ceil(boss.hp)).toLocaleString()} / ${boss.maxHp.toLocaleString()}`; }
   }
+  // dungeon mouths: each zone's entrance has its own living effect (the exit inside matches its dungeon)
+  const GATE_COL = [null, '#6fe0c0', '#7fe8a8', '#ffb23d', '#c8d7a0', '#8fe0ff', '#d29bff'];
+  function drawGate(o, s, cx, cy, Lt, tags) {
+    const z = o.type === 'dentry' ? o.v : G.dun ? G.dun.zone : G.map.zoneOf(Math.floor(o.tx), Math.floor(o.ty)), exit = !!G.dun;
+    const gx = o.x - cx - s.ax + s.glow[0], gy = o.y - cy - s.ay + s.glow[1], gh = s.ay - s.glow[1], col = GATE_COL[z] || '#b46cff', R = Math.random;
+    const swirl = (rx, ry, c) => { ctx.lineWidth = 1; for (let k = 0; k < 6; k++) { const a0 = G.t * (1.6 + k * 0.25) + k * 1.3; ctx.strokeStyle = hexA(c, 0.22 + k * 0.1); ctx.beginPath(); ctx.ellipse(Math.round(gx), Math.round(gy), Math.max(2, rx - k * rx / 7), Math.max(2, ry - k * ry / 7), 0, a0, a0 + 2.2); ctx.stroke(); } };
+    const flame = (fx, fy, big) => { for (let k = 0; k < (big ? 10 : 5); k++) { const hh = V.hash(k, Math.floor(G.t * 14), fx | 0); ctx.fillStyle = k < 2 ? '#fff0b8' : k < 4 ? '#ffb23d' : '#ff5a1f'; ctx.fillRect(Math.round(fx + (hh - 0.5) * (big ? 9 : 3)), Math.round(fy - hh * (big ? 10 : 5)), 1, big ? 2 : 1); } };
+    let light = Lt[1];
+    if (z === 1) { // falling leaves, a teal breath from the hollow
+      if (R() < 0.1) part({ x: o.x + rnd(-40, 40), y: o.y + rnd(-6, 6), z: rnd(90, 120), vx: rnd(-10, 10), vz: -rnd(10, 18), life: rnd(3, 5), max: 4, color: R() < 0.5 ? '#5d7a34' : '#8a6a2a', size: 2, glow: false });
+      if (R() < 0.08) part({ x: o.x + rnd(-10, 10), y: o.y, z: gh + rnd(-10, 10), vx: rnd(-6, 6), vz: rnd(4, 10), life: 1.6, max: 1.6, color: col });
+    } else if (z === 2) { // candle flames, drowned mist curling from the door
+      for (const [fx, fy] of s.fx) { const x = o.x - cx - s.ax + fx, y = o.y - cy - s.ay + fy; flame(x, y, false); addLight(x, y - 3, 46 * (0.9 + R() * 0.12), '#ffd99a', 0.7); }
+      if (R() < 0.12) part({ x: o.x + rnd(-14, 14), y: o.y + rnd(0, 8), z: rnd(0, 8), vx: rnd(-8, 8), vz: rnd(1, 4), life: rnd(1.5, 2.5), max: 2.5, color: 'rgba(110,200,150,0.22)', size: 5, glow: false, mist: true });
+    } else if (z === 3) { // braziers on the lintel, embers rising out of the forge
+      for (const [fx, fy] of s.fx) { const x = o.x - cx - s.ax + fx, y = o.y - cy - s.ay + fy; flame(x, y, true); addLight(x, y - 4, 70 * (0.92 + R() * 0.08), '#ff9a3c', 0.9); }
+      if (R() < 0.35) part({ x: o.x + rnd(-14, 14), y: o.y + rnd(-4, 4), z: rnd(4, 30), vx: rnd(-6, 6), vz: rnd(18, 36), life: rnd(0.8, 1.5), max: 1.3, color: R() < 0.5 ? '#ffb23d' : '#ff5a1f' });
+      light *= 0.9 + Math.sin(G.t * 9) * 0.05 + R() * 0.05;
+    } else if (z === 4) { // low mist rolling out of the barrow
+      if (R() < 0.2) part({ x: o.x + rnd(-30, 30), y: o.y + rnd(0, 14), z: rnd(0, 4), vx: rnd(-10, 10), vz: rnd(0.5, 2), life: rnd(2, 3.4), max: 3.4, color: 'rgba(200,215,170,0.16)', size: 6, glow: false, mist: true });
+      light *= 0.6;
+    } else if (z === 5) { // the frozen tear turns; snow drifts down around it
+      if (!s.frames) swirl(26, 34, col);
+      if (R() < 0.3) part({ x: o.x + rnd(-50, 50), y: o.y + rnd(-10, 10), z: rnd(80, 120), vx: rnd(-6, 6), vz: -rnd(12, 22), life: rnd(3, 5), max: 4, color: '#e4f6ff', size: 1, glow: false });
+    } else { // the void tear turns and spits sparks
+      if (!s.frames) swirl(18, 34, col);
+      if (R() < 0.3) { const a = R() * Math.PI * 2; part({ x: o.x + Math.cos(a) * 6, y: o.y, z: gh + Math.sin(a) * 20, vx: Math.cos(a) * rnd(20, 45), vz: Math.sin(a) * rnd(10, 30), life: rnd(0.5, 1), max: 0.9, color: R() < 0.6 ? col : '#ffffff' }); }
+    }
+    addLight(gx, gy, light * (0.92 + 0.08 * Math.sin(G.t * 2)), exit ? '#ffe7a0' : col, Lt[2]);
+    const D = V.DUNGEONS[z], known = exit || ((G.self && G.self.fd) || []).includes(z) || V.gdist(L.x, L.y, o.x, o.y) < 260;
+    if (known) tags.push([exit ? 'Exit' : D ? D.name : '', 0, o.x - cx, o.y - cy - s.ay - 6, exit ? '#fff0b8' : col, -1]);
+  }
   function updateMinimap(dt) {
-    G.miniT -= dt; if (G.miniT > 0) return; G.miniT = 0.12;
-    mctx.clearRect(0, 0, mini.width, mini.height);
-    mctx.drawImage(G.mini, 0, 0);
-    const dot = (x, y, c, s = 2) => { const [tx, ty] = V.toTile(x, y); mctx.fillStyle = c; mctx.fillRect(Math.round(tx - ty + V.N - s / 2), Math.round((tx + ty) / 2 - s / 2), s, s); };
-    for (const f of G.foes) if (!f.dead && !f.far && f.type !== 'dummy') dot(f.x, f.y, f.def.boss ? '#ffb02e' : f.elite ? '#ffcf4a' : '#e0464e', f.def.boss ? 3 : 1);
-    for (const m of G.minions.values()) dot(m.x, m.y, '#7dffc8', 1);
-    for (const n of G.npcs) dot(n.x, n.y, n.cls === L.cls ? '#9be38a' : '#4f7a48', n.cls === L.cls ? 3 : 2);
-    { const [bx, by] = V.boardPos(); dot(bx, by, '#e2c781', 2); }
-    for (const p of G.players.values()) if (p.id !== G.me && !p.dead) dot(p.x, p.y, glow(p.cls), 2);
-    dot(L.x, L.y, '#ffffff', 3); dot(L.x, L.y, glow(L.cls), 1);
+    G.miniT -= dt; if (G.miniT > 0) return; G.miniT = 0.1;
+    const dpr = DPR(), cw = mini.clientWidth || 224, ch = mini.clientHeight || 140;
+    if (mini.width !== Math.round(cw * dpr) || mini.height !== Math.round(ch * dpr)) { mini.width = Math.round(cw * dpr); mini.height = Math.round(ch * dpr); }
+    const g = mctx; g.setTransform(dpr, 0, 0, dpr, 0, 0); g.imageSmoothingEnabled = false;
+    g.fillStyle = '#05040a'; g.fillRect(0, 0, cw, ch);
+    // a window around you: Z screen px per minimap-image px (each tile is 2x1 image px)
+    const Z = G.dun ? 3.4 : 2.6, [ptx, pty] = V.toTile(L.x, L.y), ox = cw / 2 - (ptx - pty + V.N) * Z, oy = ch / 2 - (ptx + pty) / 2 * Z;
+    g.drawImage(G.mini, Math.round(ox), Math.round(oy), G.mini.width * Z, G.mini.height * Z);
+    const pos = (x, y) => { const [tx, ty] = V.toTile(x, y); return [ox + (tx - ty + V.N) * Z, oy + (tx + ty) / 2 * Z]; };
+    const inside = (px, py, m = 0) => px > -m && py > -m && px < cw + m && py < ch + m;
+    const dot = (x, y, c, r, ring) => { const [px, py] = pos(x, y); if (!inside(px, py, 6)) return; g.beginPath(); g.arc(px, py, r, 0, Math.PI * 2); g.fillStyle = c; g.fill(); if (ring) { g.lineWidth = 1.5; g.strokeStyle = '#05040a'; g.stroke(); } };
+    const dia = (x, y, c, r) => { const [px, py] = pos(x, y); if (!inside(px, py, 6)) return; g.beginPath(); g.moveTo(px, py - r); g.lineTo(px + r, py); g.lineTo(px, py + r); g.lineTo(px - r, py); g.closePath(); g.fillStyle = c; g.fill(); g.lineWidth = 1.5; g.strokeStyle = '#05040a'; g.stroke(); };
+    for (const f of G.foes) if (!f.dead && !f.far && f.type !== 'dummy') dot(f.x, f.y, f.def.boss ? '#ff9a2e' : f.elite ? '#ffcf4a' : '#e0464e', f.def.boss ? 4 : f.elite ? 2.6 : 1.9, f.def.boss || f.elite);
+    for (const m of G.minions.values()) dot(m.x, m.y, '#7dffc8', 1.6);
+    for (const n of G.npcs) dia(n.x, n.y, n.cls === L.cls ? '#9be38a' : '#5d8a55', n.cls === L.cls ? 4.5 : 3.2);
+    if (G.dun) { const [ex, ey] = V.dunExit(); dot(ex, ey, '#fff0b8', 4.5, true); }
+    else {
+      { const [bx, by] = V.boardPos(), [px, py] = pos(bx, by); if (inside(px, py)) { g.fillStyle = '#e2c781'; g.fillRect(px - 3, py - 3, 6, 6); } }
+      for (const z of (G.self && G.self.fd) || []) { // found dungeons: a marker, or an arrow at the edge pointing to it
+        const [gx, gy] = V.gatePos(z), [px, py] = pos(gx, gy);
+        if (inside(px, py)) { g.beginPath(); g.arc(px, py, 4.5, 0, Math.PI * 2); g.fillStyle = '#2a1048'; g.fill(); g.lineWidth = 2; g.strokeStyle = '#c58bff'; g.stroke(); }
+        else { const a = Math.atan2(py - ch / 2, px - cw / 2), ex = clamp(cw / 2 + Math.cos(a) * cw, 7, cw - 7), ey = clamp(ch / 2 + Math.sin(a) * ch, 7, ch - 7);
+          g.save(); g.translate(ex, ey); g.rotate(a); g.beginPath(); g.moveTo(5, 0); g.lineTo(-4, -4); g.lineTo(-4, 4); g.closePath(); g.fillStyle = '#c58bff'; g.fill(); g.restore(); }
+      }
+    }
+    for (const p of G.players.values()) if (p.id !== G.me && !p.dead) dot(p.x, p.y, glow(p.cls), 3, true);
+    const [mx, my] = pos(L.x, L.y);
+    g.beginPath(); g.arc(mx, my, 4.5, 0, Math.PI * 2); g.fillStyle = '#ffffff'; g.fill(); g.beginPath(); g.arc(mx, my, 2.6, 0, Math.PI * 2); g.fillStyle = glow(L.cls); g.fill();
   }
 
   // ---------- windows ----------
@@ -1509,12 +1625,14 @@
     if (V.Snd) V.Snd.play('open');
     if (id === 'winMenu') syncAudioUi();
     if (id === 'winChar') renderChar();
-    if (id === 'winMap') renderWorldMap();
     if (id === 'winBoard') renderBoard();
     if (id === 'winEvolve') renderEvolve();
     if (id === 'winInv') { trashMode = false; renderInv(); }
+    if (id === 'winDungeon') renderDungeon();
     if (id === 'winAdmin' && G.link && G.link.admin) G.link.admin('list');
     $(id).hidden = false; mouse.down = false; keys.clear();
+    if (id === 'winParty') renderParty();
+    if (id === 'winMap') renderWorldMap(); // (needs the window open to know its size)
   }
   function closeWindows() { for (const id of WINS) $(id).hidden = true; hideTip(); }
   function toggleWindow(id) { if ($(id).hidden) openWindow(id); else closeWindows(); }
@@ -1522,7 +1640,94 @@
   $('btnChar').addEventListener('click', () => toggleWindow('winChar'));
   $('btnTalents').addEventListener('click', () => toggleWindow('winTalents'));
   $('btnInv').addEventListener('click', () => toggleWindow('winInv'));
-  $('btnMap').addEventListener('click', () => toggleWindow('winMap'));
+  $('btnMap').addEventListener('click', () => { if (G.dun) say('No map down here'); else toggleWindow('winMap'); });
+  $('btnParty').addEventListener('click', () => toggleWindow('winParty'));
+  $('spectLeave').addEventListener('click', () => { if (G.link && G.link.leaveDungeon) G.link.leaveDungeon(); });
+
+  // ---------- dungeons and parties ----------
+  function updateDunBar(s) {
+    const bar = $('dunBar');
+    if (!G.dun) { bar.hidden = true; return; }
+    const D = V.DUNGEONS[G.dun.zone], M = V.DUN_MODES[G.dun.mode], n = Math.max(0, s.dl), key = `${G.dun.zone}|${G.dun.mode}|${n}|${s.dc}`;
+    bar.hidden = false;
+    if (bar.dataset.k === key) return; bar.dataset.k = key;
+    bar.innerHTML = `<b>${esc(D.name)}</b><span style="color:${M.color}">${M.name}</span><span class="hearts" title="Lives left">${'♥'.repeat(n)}<i>${'♥'.repeat(Math.max(0, V.DUN_LIVES - n))}</i></span>` +
+      (s.dc ? '<span class="clr">Cleared · exit at the entrance</span>' : '');
+  }
+  function renderDungeon() {
+    const z = G.gateZ, D = V.DUNGEONS[z]; if (!D) return;
+    const P = G.party, lead = !P || P.leader === G.me, inside = P && P.inst === z, busy = P && P.inst && P.inst !== z;
+    $('dunTitle').textContent = D.name;
+    let h = `<p class="dsub">${esc(D.sub)}</p><p class="dmeta">Level ${V.dunLevel(z)} · ${V.DUN_ROOMS.length - 2} halls of ${esc(D.packs.map((t) => FOES[t].name).join(', '))} · Boss: <b>${esc(FOES[D.boss].name)}</b></p>` +
+      `<p class="dmeta">Each player has <b>${V.DUN_LIVES} lives</b>. With a party you rise after 5 seconds; alone, at once. If everyone is down at the same time, the run ends. Out of lives, you watch.</p>`;
+    if (inside) h += `<p class="dnote">Your party is inside.</p><button class="btn primary" type="button" data-join>Join your party</button>`;
+    else if (busy) h += `<p class="dnote">Your party is in ${esc(V.DUNGEONS[P.inst].name)}.</p>`;
+    else if (!lead) h += `<p class="dnote">Only your party leader can open the dungeon. You will be brought in with them.</p>`;
+    else {
+      h += '<div class="modes">' + V.DUN_MODES.map((M, i) => `<button type="button" class="mode${i === (G.dunMode || 0) ? ' on' : ''}" data-mode="${i}" style="--mc:${M.color}"><b>${M.name}</b><small>${esc(M.desc)}</small></button>`).join('') + '</div>';
+      h += `<p class="dnote">${P ? `Your party of ${P.members.length} enters together.` : 'You are entering alone. Press P to form a party (up to ' + V.PARTY_MAX + ').'}</p><button class="btn primary" type="button" data-enter>Enter</button>`;
+    }
+    const body = $('dunBody'); body.innerHTML = h;
+    body.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => { G.dunMode = +b.dataset.mode; renderDungeon(); }));
+    const go = body.querySelector('[data-enter]') || body.querySelector('[data-join]');
+    if (go) go.addEventListener('click', () => { if (G.link && G.link.dungeon) G.link.dungeon(z, G.dunMode || 0); closeWindows(); });
+  }
+  function gotInvite(m) {
+    G.invites.set(m.from, m.name);
+    chatLine(`${m.name} invited you to a party. Press P to answer.`, 'loot'); toast('Party invite', `${m.name} · press P`, true);
+    if (V.Snd) V.Snd.play('bountyTake');
+    if (!$('winParty').hidden) renderParty();
+  }
+  function renderParty() {
+    // the frames under your own: everyone else in the party
+    const P = G.party, fr = $('partyFrames');
+    const others = P ? P.members.filter((m) => m.pid !== G.me) : [];
+    fr.hidden = !others.length;
+    fr.innerHTML = others.map((m) => `<div class="pf${m.dead ? ' dead' : ''}"><div class="pfh"><b>${P.leader === m.pid ? '♛ ' : ''}${esc(m.name)}</b><span>${m.level}</span></div>` +
+      `<div class="bar hp sm"><i style="width:${(100 * clamp(m.hp / m.maxHp, 0, 1)).toFixed(0)}%"></i></div><div class="pfw">${m.lives >= 0 ? `<span class="hearts">${'♥'.repeat(m.lives)}</span> ` : ''}${esc(m.where)}</div></div>`).join('');
+    if ($('winParty').hidden) return;
+    const lead = P && P.leader === G.me;
+    let h = '';
+    if (G.invites && G.invites.size) h += '<h3>Invites</h3>' + [...G.invites].map(([pid, name]) => `<div class="prow"><b>${esc(name)}</b><button class="btn primary sm" data-acc="${pid}">Join</button><button class="btn secondary sm" data-dec="${pid}">Decline</button></div>`).join('');
+    h += `<h3>${P ? `Party · ${P.members.length} / ${V.PARTY_MAX}` : 'No party'}</h3>`;
+    if (P) h += P.members.map((m) => `<div class="prow"><span class="pc" style="color:${glow(m.cls)}">${P.leader === m.pid ? '♛' : '•'}</span><b>${esc(m.name)}</b><small>Lv ${m.level} ${esc(G.meta.heroes[m.cls] ? G.meta.heroes[m.cls].name : '')} · ${esc(m.where)}</small>` +
+      (lead && m.pid !== G.me ? `<button class="btn secondary sm" data-pro="${m.pid}">Lead</button><button class="btn danger sm" data-kick="${m.pid}">Kick</button>` : '') + '</div>').join('');
+    else h += '<p class="win-note">Right-click another player to invite them, or type a name below.</p>';
+    if (!P || lead) h += `<div class="row"><input id="invName" type="text" maxlength="24" placeholder="Character name" aria-label="Character name"><button class="btn primary sm" id="invBtn" type="button">Invite</button></div>`;
+    if (P) h += `<p class="win-note">Party chat: start a message with /p. Dungeons: the leader opens one at its gate and everyone is brought in.</p><button class="btn danger sm" id="pLeave" type="button">Leave party</button>`;
+    const b = $('partyBody'); b.innerHTML = h;
+    const on = (sel, fn) => b.querySelectorAll(sel).forEach((x) => x.addEventListener('click', () => fn(x)));
+    on('[data-acc]', (x) => { const pid = +x.dataset.acc; G.invites.delete(pid); G.link.acceptInvite(pid); renderParty(); });
+    on('[data-dec]', (x) => { const pid = +x.dataset.dec; G.invites.delete(pid); G.link.declineInvite(pid); renderParty(); });
+    on('[data-kick]', (x) => G.link.kick(+x.dataset.kick));
+    on('[data-pro]', (x) => G.link.promote(+x.dataset.pro));
+    const ib = $('invBtn'); if (ib) { const go = () => { const n = $('invName').value.trim(); if (n) { G.link.invite(n); $('invName').value = ''; } }; ib.addEventListener('click', go); $('invName').addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') go(); }); }
+    const lb = $('pLeave'); if (lb) lb.addEventListener('click', () => ask('Leave the party?', G.dun ? 'You will also leave the dungeon.' : '', 'Leave', null, true).then((ok) => { if (ok) G.link.leaveParty(); }));
+  }
+  // right-click another player: party options
+  function playerUnderMouse() {
+    const wx = mouse.x + G.cam.x, wy = mouse.y + G.cam.y;
+    let best = null, bd = 26;
+    for (const p of G.players.values()) {
+      if (p.id === G.me || p.dead) continue;
+      const d = Math.hypot(wx - p.x, (wy - (p.y - 22)) * 0.6);
+      if (d < bd) { bd = d; best = p; }
+    }
+    return best;
+  }
+  function playerMenu(p, e) {
+    const P = G.party, lead = P && P.leader === G.me, inMine = P && P.members.some((m) => m.pid === p.id), menu = $('ctxMenu');
+    const items = [];
+    if (!inMine && (!P || lead)) items.push(['Invite to party', () => G.link.invite(p.id)]);
+    if (inMine && lead) { items.push(['Make leader', () => G.link.promote(p.id)]); items.push(['Kick from party', () => G.link.kick(p.id)]); }
+    if (!items.length) items.push([inMine ? 'In your party' : 'Only your leader can invite', null]);
+    menu.innerHTML = `<div class="cm-h">${esc(p.name)} <small>Lv ${p.level}</small></div>` + items.map(([t, f], i) => `<button type="button" data-i="${i}"${f ? '' : ' disabled'}>${esc(t)}</button>`).join('');
+    menu.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => { const f = items[+b.dataset.i][1]; menu.hidden = true; if (f) f(); }));
+    const r = $('game').getBoundingClientRect();
+    menu.style.left = Math.min(e.clientX - r.left, r.width - 180) + 'px'; menu.style.top = Math.min(e.clientY - r.top, r.height - 120) + 'px';
+    menu.hidden = false;
+  }
+  addEventListener('pointerdown', (e) => { const m = $('ctxMenu'); if (!m.hidden && !m.contains(e.target)) m.hidden = true; }, true);
   $('btnMenu').addEventListener('click', () => toggleWindow('winMenu'));
   $('respecBtn').addEventListener('click', () => { if (G.link) G.link.respec(); });
   $('menuChars').addEventListener('click', () => { closeWindows(); toCharSelect(); });
@@ -1788,12 +1993,12 @@
       g.globalAlpha = have || open ? 1 : 0.45;
       g.drawImage(V.icon(V.nodeIcon(n), col, { dim: !have, bare: true }), x - s / 2, y - s / 2, s, s);
       g.globalAlpha = 1;
-      if (n.max > 1) { g.font = `${Math.max(9, 10 * web.z)}px Silkscreen, monospace`; g.lineWidth = 3; g.strokeStyle = '#05040a'; const tx = `${rank}/${n.max}`; g.strokeText(tx, x, y + r + 11); g.fillStyle = rank ? '#ffd98a' : '#8f86a3'; g.fillText(tx, x, y + r + 11); }
+      if (n.max > 1) { g.font = `700 ${Math.max(11, 11 * web.z)}px Inter, system-ui, sans-serif`; g.lineWidth = 3; g.strokeStyle = '#05040a'; const tx = `${rank}/${n.max}`; g.strokeText(tx, x, y + r + 11); g.fillStyle = rank ? '#ffd98a' : '#8f86a3'; g.fillText(tx, x, y + r + 11); }
       if (n === web.hover) { g.strokeStyle = '#fff'; g.lineWidth = 1; g.beginPath(); g.arc(x, y, r + 5, 0, Math.PI * 2); g.stroke(); }
     }
     // points left in the corner
     const left = V.pointsLeft(L.cls, L.level, tal);
-    g.textAlign = 'left'; g.font = '11px Silkscreen, monospace'; g.fillStyle = left ? '#ffd84a' : '#8f86a3'; g.fillText(`${left} POINT${left === 1 ? '' : 'S'}`, 12, 20);
+    g.textAlign = 'left'; g.font = '700 13px Inter, system-ui, sans-serif'; g.fillStyle = left ? '#ffd84a' : '#8f86a3'; g.fillText(`${left} POINT${left === 1 ? '' : 'S'}`, 12, 20);
   }
   function webHit(mx, my) {
     let best = null, bd = 1e9;
@@ -1883,43 +2088,64 @@
       .map(([n, meta, d, ok, key]) => `<div class="sk${ok ? '' : ' locked'}"><div class="ico">${esc(key)}</div><div><h4>${esc(n)} <small>${esc(meta)}</small></h4><p>${esc(d)}</p></div></div>`).join('');
   }
   let zoneCentroids = null;
+  // the world map (M): drawn at screen resolution so every label is sharp
   function renderWorldMap() {
-    const c = $('worldmap'), g = c.getContext('2d');
-    g.imageSmoothingEnabled = false;
-    g.fillStyle = '#05040a'; g.fillRect(0, 0, c.width, c.height);
-    g.drawImage(G.mini, 0, 0, c.width, c.height);
-    const sx = c.width / G.mini.width, sy = c.height / G.mini.height;
-    if (!zoneCentroids) {
-      zoneCentroids = ZONE_INFO.map(() => [0, 0, 0]);
-      for (let j = 0; j < V.N; j++) for (let i = 0; i < V.N; i++) { const z = G.map.zones[j * V.N + i], q = zoneCentroids[z]; q[0] += i - j + V.N; q[1] += (i + j) / 2; q[2]++; }
+    const c = $('worldmap'), r = c.getBoundingClientRect(), dpr = DPR(), cw = Math.max(320, r.width), ch = cw / 2;
+    c.width = Math.round(cw * dpr); c.height = Math.round(ch * dpr);
+    const g = c.getContext('2d'), M = G.over.map, img = G.over.mini;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0); g.imageSmoothingEnabled = false; g.lineJoin = 'round';
+    g.fillStyle = '#05040a'; g.fillRect(0, 0, cw, ch);
+    g.drawImage(img, 0, 0, cw, ch);
+    const sx = cw / img.width, sy = ch / img.height, at = (wx, wy) => { const [tx, ty] = V.toTile(wx, wy); return [(tx - ty + V.N) * sx, (tx + ty) / 2 * sy]; };
+    const atT = (tx, ty) => [(tx - ty + V.N) * sx, (tx + ty) / 2 * sy];
+    const label = (t, x, y, col, font, w = 3.5) => { g.font = font; g.lineWidth = w; g.strokeStyle = 'rgba(5,4,10,.95)'; g.strokeText(t, x, y); g.fillStyle = col; g.fillText(t, x, y); };
+    if (!zoneCentroids) { // label each zone along its average direction from town, at its median distance (ring zones have no useful centroid)
+      const acc = ZONE_INFO.map(() => ({ c: 0, s: 0, rs: [] }));
+      for (let j = 0; j < V.N; j++) for (let i = 0; i < V.N; i++) { const z = M.zones[j * V.N + i], dx = i + 0.5 - V.C, dy = j + 0.5 - V.C, a = Math.atan2(dy, dx), q = acc[z]; q.c += Math.cos(a); q.s += Math.sin(a); if ((i + j) % 3 === 0) q.rs.push(Math.hypot(dx, dy)); }
+      zoneCentroids = acc.map((q) => { if (!q.rs.length) return [0, 0, 0]; q.rs.sort((a, b) => a - b); const a = Math.atan2(q.s, q.c), r = q.rs[q.rs.length >> 1]; return [V.C + Math.cos(a) * r, V.C + Math.sin(a) * r, 1]; });
     }
-    g.textAlign = 'center';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    const big = cw > 640;
     ZONE_INFO.forEach((zi, z) => {
-      const q = zoneCentroids[z]; if (!q[2]) return;
-      const x = q[0] / q[2] * sx, y = q[1] / q[2] * sy;
-      g.font = '800 15px Cinzel, Georgia, serif'; g.lineWidth = 4; g.strokeStyle = '#05040a'; g.strokeText(zi.name, x, y); g.fillStyle = '#ece6d8'; g.fillText(zi.name, x, y);
-      g.font = '10px Silkscreen, monospace'; const lv = zi.safe ? 'Town' : `Level ${zi.lv[0]}–${zi.lv[1]}`;
-      g.strokeText(lv, x, y + 15); g.fillStyle = '#e2c781'; g.fillText(lv, x, y + 15);
+      const q = zoneCentroids[z]; if (!q[2] || z === 0) return;
+      const [x, y] = atT(q[0], q[1]);
+      label(zi.name, x, y - 7, '#f1ead8', `800 ${big ? 17 : 13}px Cinzel, Georgia, serif`, 4);
+      label(`Level ${zi.lv[0]}–${zi.lv[1]}`, x, y + 10, '#e2c781', `700 ${big ? 12 : 10.5}px Inter, system-ui, sans-serif`);
     });
-    for (const f of G.foes) if (f.def.boss) {
-      const [tx, ty] = V.toTile(f.hx, f.hy), x = (tx - ty + V.N) * sx, y = (tx + ty) / 2 * sy;
-      g.fillStyle = '#ffb02e'; g.beginPath(); g.arc(x, y, 5, 0, Math.PI * 2); g.fill(); g.strokeStyle = '#05040a'; g.lineWidth = 2; g.stroke();
-      g.font = '9px Silkscreen, monospace'; g.lineWidth = 3; g.strokeText(f.def.name, x, y - 9); g.fillStyle = '#ffcf8a'; g.fillText(f.def.name, x, y - 9);
+    // markers
+    const diamond = (x, y, r, fill) => { g.beginPath(); g.moveTo(x, y - r); g.lineTo(x + r, y); g.lineTo(x, y + r); g.lineTo(x - r, y); g.closePath(); g.fillStyle = fill; g.fill(); g.lineWidth = 2; g.strokeStyle = '#05040a'; g.stroke(); };
+    const circle = (x, y, r, fill) => { g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fillStyle = fill; g.fill(); g.lineWidth = 2; g.strokeStyle = '#05040a'; g.stroke(); };
+    const small = `600 ${big ? 11.5 : 10}px Inter, system-ui, sans-serif`;
+    { const [x, y] = at(...V.boardPos()); g.fillStyle = '#e2c781'; g.fillRect(x - 4, y - 4, 8, 8); g.lineWidth = 2; g.strokeStyle = '#05040a'; g.strokeRect(x - 4, y - 4, 8, 8); }
+    { const [x, y] = atT(V.C, V.C); label('Vaelmort Gate', x, y + 16, '#f1ead8', `800 ${big ? 14 : 12}px Cinzel, Georgia, serif`); }
+    for (const f of G.dun ? [] : G.foes) if (f.def.boss && !f.isAdd) { const [x, y] = at(f.hx, f.hy); circle(x, y, 5.5, '#ff9a2e'); label(f.def.name, x, y - 13, '#ffcf8a', small); }
+    for (const n of G.over.npcs) {
+      const [x, y] = at(n.x, n.y), own = n.cls === L.cls;
+      if (V.TRAINERS[n.cls].town && !own) continue;
+      diamond(x, y, own ? 6.5 : 4.5, own ? '#9be38a' : '#5d8a55');
+      if (own) label(V.TRAINERS[n.cls].town ? n.name : `${n.name} · ${n.camp}`, x, y + (V.TRAINERS[n.cls].town ? -13 : 15), '#c6f5b6', small);
     }
-    for (const n of G.npcs) {
-      const [nx, ny] = V.toTile(n.x, n.y), x = (nx - ny + V.N) * sx, y = (nx + ny) / 2 * sy, own = n.cls === L.cls;
-      g.fillStyle = own ? '#9be38a' : '#5d8a55'; g.fillRect(x - 4, y - 4, 8, 8); g.strokeStyle = '#05040a'; g.lineWidth = 2; g.strokeRect(x - 4, y - 4, 8, 8);
-      if (own) { g.font = '700 10px Silkscreen, monospace'; g.lineWidth = 3; const lbl = `${n.name} · ${n.camp}`; g.strokeText(lbl, x, y + 16); g.fillStyle = '#c6f5b6'; g.fillText(lbl, x, y + 16); }
+    for (const z of (G.self && G.self.fd) || []) { // dungeon entrances you have found
+      const [gx0, gy0] = V.gateTile(z), [x, y] = atT(gx0, gy0);
+      g.beginPath(); g.arc(x, y, 6.5, 0, Math.PI * 2); g.fillStyle = '#2a1048'; g.fill(); g.lineWidth = 2.5; g.strokeStyle = '#c58bff'; g.stroke();
+      label(V.DUNGEONS[z].name, x, y - 15, '#e0c8ff', small);
     }
+    // you
+    { const [px, py] = at(L.x, L.y); g.beginPath(); g.arc(px, py, 10, 0, Math.PI * 2); g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 2; g.stroke(); circle(px, py, 6, '#ffffff'); g.beginPath(); g.arc(px, py, 3.6, 0, Math.PI * 2); g.fillStyle = glow(L.cls); g.fill(); }
     // legend
-    g.textAlign = 'left'; g.font = '10px Silkscreen, monospace'; g.lineWidth = 3;
-    const lg = [['#9be38a', 'Your trainer'], ['#5d8a55', 'Other trainers'], ['#e2c781', 'Bounty board'], ['#ffb02e', 'Boss']];
-    lg.forEach(([c, t], i) => { const ly = $('worldmap').height - 14 - (lg.length - 1 - i) * 16; g.fillStyle = c; g.fillRect(12, ly - 7, 8, 8); g.strokeText(t, 26, ly); g.fillStyle = '#ece6d8'; g.fillText(t, 26, ly); });
-    g.textAlign = 'center';
-    { const [bx0, by0] = V.toTile(...V.boardPos()), x = (bx0 - by0 + V.N) * sx, y = (bx0 + by0) / 2 * sy;
-      g.fillStyle = '#e2c781'; g.fillRect(x - 3, y - 3, 6, 6); }
-    const [tx, ty] = V.toTile(L.x, L.y), px = (tx - ty + V.N) * sx, py = (tx + ty) / 2 * sy;
-    g.fillStyle = '#ffffff'; g.beginPath(); g.arc(px, py, 6, 0, Math.PI * 2); g.fill(); g.fillStyle = glow(L.cls); g.beginPath(); g.arc(px, py, 3.5, 0, Math.PI * 2); g.fill();
+    const lg = [['you', 'You'], ['own', 'Your trainer'], ['oth', 'Other trainers'], ['board', 'Bounty board'], ['boss', 'Boss'], ['dun', 'Dungeon (once found)']];
+    const lh = 19, bw = 168, bh = lg.length * lh + 14, bx = 10, by = 10; // top-left: always open sky beside the map's diamond
+    g.fillStyle = 'rgba(10,8,15,.82)'; g.fillRect(bx, by, bw, bh); g.strokeStyle = '#2a2236'; g.lineWidth = 1; g.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
+    g.textAlign = 'left';
+    lg.forEach(([k, t], i) => {
+      const x = bx + 16, y = by + 14 + i * lh;
+      if (k === 'you') { circle(x, y, 5, '#ffffff'); g.beginPath(); g.arc(x, y, 3, 0, Math.PI * 2); g.fillStyle = glow(L.cls); g.fill(); }
+      else if (k === 'own') diamond(x, y, 5.5, '#9be38a'); else if (k === 'oth') diamond(x, y, 4.5, '#5d8a55');
+      else if (k === 'board') { g.fillStyle = '#e2c781'; g.fillRect(x - 4, y - 4, 8, 8); g.strokeStyle = '#05040a'; g.lineWidth = 2; g.strokeRect(x - 4, y - 4, 8, 8); }
+      else if (k === 'boss') circle(x, y, 5, '#ff9a2e');
+      else { g.beginPath(); g.arc(x, y, 5, 0, Math.PI * 2); g.fillStyle = '#2a1048'; g.fill(); g.lineWidth = 2.5; g.strokeStyle = '#c58bff'; g.stroke(); }
+      label(t, x + 14, y + 0.5, '#ece6d8', '600 12px Inter, system-ui, sans-serif', 3);
+    });
   }
 
   // ---------- chat ----------
@@ -2093,6 +2319,35 @@
     if (Acc) showChars();
   }
 
+  // ---------- worlds: the overworld, or a party's private dungeon ----------
+  const foesFrom = (rows) => rows.map(([fid, type, hx, hy, level, elite, maxHp]) => ({ id: fid, type, def: FOES[type], x: hx, y: hy, sx: hx, sy: hy, hx, hy, level, elite: !!elite, maxHp, hp: maxHp,
+    state: 'idle', face: 1, flags: 0, t: 0, anim: Math.random() * 3, flash: 0, dead: false, far: G.mode === 'online', label: false, ab: 0 }));
+  function useMap(dun) {
+    G.dun = dun; V.inDun = !!dun;
+    if (dun) { G.map = V.generateDungeon(dun.zone); G.ground = V.makeGround(G.map); G.mini = V.paintMinimap(G.map); G.npcs = []; }
+    else { G.map = G.over.map; G.ground = G.over.ground; G.mini = G.over.mini; G.npcs = G.over.npcs; }
+    G.coll = V.makeCollision(G.map); G.braziers = null;
+    mini.width = G.mini.width; mini.height = G.mini.height;
+  }
+  function enterMap(m) {
+    useMap(m.dun);
+    G.foes = foesFrom(m.foes);
+    const self = G.players.get(G.me);
+    G.players = new Map(); if (self) { Object.assign(self, { x: m.x, y: m.y, sx: m.x, sy: m.y, dead: false, move: null }); G.players.set(G.me, self); }
+    G.shots = new Map(); G.minions = new Map(); G.fields = new Map(); G.loot = new Map();
+    G.parts = []; G.rings = []; G.texts = []; G.ghosts = []; G.decals = []; G.bolts = []; G.target = null;
+    L.x = m.x; L.y = m.y; L.seq = m.seq; L.atk = null; L.dodge = null; L.move = null;
+    G.cam.x = L.x - W / 2; G.cam.y = L.y - 28 - H / 2; G.flash = 0.7;
+    closeWindows(); lastPrompt = '-'; lastZoneLabel = -2;
+    if (m.dun) {
+      const D = V.DUNGEONS[m.dun.zone], M = V.DUN_MODES[m.dun.mode];
+      G.zone = m.dun.zone; G.dark = D.dark;
+      banner(D.name, D.sub, `${M.name} · Level ${V.dunLevel(m.dun.zone)} · ${V.DUN_LIVES} lives`, 4);
+      chatLine(`You entered ${D.name} (${M.name}). Each of you has ${V.DUN_LIVES} lives. Slay ${FOES[D.boss].name} in the deepest chamber.`, 'loot');
+    } else { G.zone = -1; chatLine('You are back in the open world.', 'sys'); }
+    if (V.Snd) V.Snd.play('respawn');
+  }
+
   // ---------- game lifecycle ----------
   function start(link) {
     const w = link.welcome;
@@ -2100,8 +2355,8 @@
     G.players = new Map(); G.shots = new Map(); G.minions = new Map(); G.fields = new Map();
     G.parts = []; G.rings = []; G.texts = []; G.ghosts = []; G.decals = []; G.bolts = []; G.self = null; G.target = null;
     G.snapDt = G.mode === 'online' ? 0.1 : 0.016; G.lastSnap = 0;
-    G.foes = w.foes.map(([fid, type, hx, hy, level, elite, maxHp]) => ({ id: fid, type, def: FOES[type], x: hx, y: hy, sx: hx, sy: hy, hx, hy, level, elite: !!elite, maxHp, hp: maxHp,
-      state: 'idle', face: 1, flags: 0, t: 0, anim: Math.random() * 3, flash: 0, dead: false, far: G.mode === 'online', label: false, ab: 0 }));
+    useMap(null); G.party = null; G.invites = new Map(); renderParty();
+    G.foes = foesFrom(w.foes);
     L.x = w.x; L.y = w.y; L.z = 0; L.seq = w.seq; L.atk = null; L.dodge = null; L.move = null; L.row = 0; L.anim = 'idle';
     L.cls = w.cls; L.name = w.name; L.level = w.level; G.talents = w.talents || {}; G.inv = w.inv || []; G.eq = w.eq || {}; G.loot = new Map();
     G.players.set(G.me, { id: G.me, name: w.name, cls: L.cls, x: L.x, y: L.y, sx: L.x, sy: L.y, hp: 1, maxHp: 1, dead: false, buffs: 0, level: w.level, rcv: G.t, animT: 0, ghostT: 0, seq: w.seq });
@@ -2153,18 +2408,23 @@
       updateLocal(dt);
       if (G.link) G.link.tick(dt);
       updateClientState(dt);
-      const tx = L.x - W / 2, ty = L.y - 28 - H / 2, k = 1 - Math.pow(0.0005, dt);
+      const eye = G.self && G.self.sp ? G.players.get(G.self.sp) : null, ex = eye ? eye.x : L.x, ey = eye ? eye.y : L.y;
+      const tx = ex - W / 2, ty = ey - 28 - H / 2, k = 1 - Math.pow(0.0005, dt);
       G.cam.x += (tx - G.cam.x) * k; G.cam.y += (ty - G.cam.y) * k;
       const [ttx, tty] = V.toTile(L.x, L.y), z = G.map.zoneOf(Math.floor(ttx), Math.floor(tty));
-      if (z >= 0 && z !== G.zone) { G.zone = z; const zi = ZONE_INFO[z]; banner(zi.name, zi.sub, zi.safe ? 'Sanctuary' : `Level ${zi.lv[0]}–${zi.lv[1]}`); }
+      if (z >= 0 && z !== G.zone && !G.dun) { G.zone = z; const zi = ZONE_INFO[z]; banner(zi.name, zi.sub, zi.safe ? 'Sanctuary' : `Level ${zi.lv[0]}–${zi.lv[1]}`); }
     } else {
       const [ox, oy] = V.toWorld(V.C, V.C);
       G.cam.x = ox + Math.cos(G.t * 0.12) * 170 - W / 2; G.cam.y = oy + Math.sin(G.t * 0.12) * 85 - H / 2 - 30;
       const [ttx, tty] = V.toTile(G.cam.x + W / 2, G.cam.y + H / 2); G.zone = Math.max(0, G.map.zoneOf(Math.floor(ttx), Math.floor(tty)));
       if (!$('screenChars').hidden) { const pc = $('clsPreview') || $('selPreview'); if (pc) drawPortrait(pc, creating ? newCls : selected ? selected.cls : newCls, Math.floor(G.t * 1.2) % 8, true); }
     }
+    if (G.recallMax > 0 && G.started) { // the return channel: fill the bar, gather light around you
+      G.recallT += dt; $('castFill').style.width = (100 * Math.min(1, G.recallT / G.recallMax)).toFixed(1) + '%';
+      if (Math.random() < 0.6) { const a = Math.random() * Math.PI * 2, r = 30 + Math.random() * 20; part({ x: L.x + Math.cos(a) * r, y: L.y + Math.sin(a) * r * 0.5, z: 2, vx: -Math.cos(a) * 18, vz: 26 + Math.random() * 20, life: 1, max: 1, color: Math.random() < 0.5 ? '#3ccf97' : '#d2ffee' }); }
+    }
     updateFx(dt); ambient(dt);
-    G.dark += (ZONE_INFO[Math.max(0, G.zone)].dark - G.dark) * Math.min(1, dt * 1.5);
+    G.dark += ((G.dun ? V.DUNGEONS[G.dun.zone].dark : ZONE_INFO[Math.max(0, G.zone)].dark) - G.dark) * Math.min(1, dt * 1.5);
     render();
     if (G.started) { updateHud(); updateMinimap(dt); }
     requestAnimationFrame(frame);
@@ -2175,6 +2435,7 @@
     W = Math.ceil(r.width / S); H = Math.ceil(r.height / S);
     view.width = W; view.height = H; light.width = W; light.height = H;
     view.style.width = W * S + 'px'; view.style.height = H * S + 'px';
+    tview.width = Math.round(W * S * DPR()); tview.height = Math.round(H * S * DPR()); tview.style.width = view.style.width; tview.style.height = view.style.height;
     ctx.imageSmoothingEnabled = false; lctx.imageSmoothingEnabled = false;
   }
 
@@ -2210,23 +2471,28 @@
       const pm = await pres.json();
       for (const [key, list] of Object.entries(pm)) {
         propImgs[key] = list.map((m) => {
-          const im = new Image(), o = { c: im, ax: m.ax, ay: m.ay, fire: m.fire, glow: m.glow };
+          if (!m) return null;
+          const im = new Image(), o = Object.assign({}, m, { c: im }); // (dungeon entrances carry frames, glow and fx points)
           jobs.push(new Promise((ok) => { im.onload = () => ok(); im.onerror = () => { o.bad = true; ok(); }; im.src = 'assets/props/' + m.file; }));
           return o;
         });
       }
     }
-    try { await Promise.race([document.fonts.load('8px Silkscreen'), new Promise((r) => setTimeout(r, 1500))]); } catch (e) { /* fallback font */ }
+    try { await Promise.race([Promise.all([document.fonts.load('700 12px Inter'), document.fonts.load('800 15px Cinzel')]), new Promise((r) => setTimeout(r, 1500))]); } catch (e) { /* fallback font */ }
     await Promise.all(jobs);
     await new Promise((r) => setTimeout(r, 30));
     G.map = V.generate(V.SEED);
     G.coll = V.makeCollision(G.map);
     G.ground = V.makeGround(G.map);
     G.spr = V.buildSprites();
-    for (const [key, list] of Object.entries(propImgs)) if (G.spr[key] && list.every((o) => !o.bad)) G.spr[key] = [0, 1, 2].map((v) => list[v % list.length]);
+    for (const [key, list] of Object.entries(propImgs)) {
+      if (!G.spr[key] || !list.every((o) => o && !o.bad)) continue;
+      G.spr[key] = key === 'dentry' ? G.spr[key].map((old, v) => list[v] || old) : [0, 1, 2].map((v) => list[v % list.length]);
+    }
     G.mini = V.paintMinimap(G.map);
     mini.width = G.mini.width; mini.height = G.mini.height;
     G.npcs = Object.keys(V.TRAINERS).map((cls, i) => { const [x, y] = V.trainerPos(cls), T = V.TRAINERS[cls]; return { x, y, cls, name: T.name, camp: T.camp, title: `<${G.meta.heroes[cls].name} Trainer>`, row: 0, phase: i * 0.37 }; });
+    G.over = { map: G.map, ground: G.ground, mini: G.mini, npcs: G.npcs };
     const [ox, oy] = V.toWorld(V.C, V.C);
     G.ground.warm(ox - 520, oy - 360, 1040, 720);
     const url = serverURL();

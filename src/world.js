@@ -53,11 +53,14 @@
     bush: { r: 0 }, mushroom: { r: 0, light: ['#5fd3e8', 46, 0.55] }, candle: { r: 0, light: ['#ffd99a', 58, 0.7] },
     snowpine: { r: 22 }, crystal: { r: 14, light: ['#8fe0ff', 70, 0.7] }, voidspire: { r: 16, light: ['#b46cff', 90, 0.8] },
     lamp: { r: 6, light: ['#ffcf7a', 110, 0.9] }, tent: { r: 34 }, well: { r: 24 }, board: { r: 16 },
+    dgate: { r: 0, light: ['#8f7bff', 130, 0.85] }, portal: { r: 0, light: ['#b46cff', 150, 0.95] },
+    dentry: { r: 0, light: ['#b46cff', 140, 0.9] }, // a dungeon's entrance (and its exit inside), one look per zone: v = zone
   };
 
   V.generate = function (seed) {
     const R = rng(seed);
     const tiles = new Uint8Array(N * N), zones = new Uint8Array(N * N), solid = new Uint8Array(N * N);
+
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
       const cx = i + 0.5, cy = j + 0.5, dx = cx - C, dy = cy - C, sx = dx - dy, sy = dx + dy, r = Math.hypot(dx, dy);
       const z = zoneAt(cx, cy, seed), n = fbm(cx * 0.11, cy * 0.11, seed), k = j * N + i;
@@ -80,6 +83,8 @@
     // trainer camps: a patch of packed earth that is never water
     const camps = Object.keys(V.TRAINERS || {}).filter((cls) => !V.TRAINERS[cls].town).map((cls) => ({ cls, tx: C + V.TRAINERS[cls].at[0], ty: C + V.TRAINERS[cls].at[1] }));
     const campDist = (tx, ty) => camps.reduce((m, c) => Math.min(m, Math.hypot(tx - c.tx, ty - c.ty)), 999);
+    const gates = (V.DUNGEONS || []).map((d, z) => d && V.gateTile(z)).filter(Boolean);
+    const gateDist = (tx, ty) => gates.reduce((m, g) => Math.min(m, Math.hypot(tx - g[0], ty - g[1])), 999);
     // distance to the walk from the edge of town out to any camp (kept clear of spawns so a level 2 can reach their trainer)
     const pathDist = (tx, ty) => camps.reduce((m, c) => {
       const dx = c.tx - C, dy = c.ty - C, L = Math.hypot(dx, dy), ux = dx / L, uy = dy / L;
@@ -113,12 +118,22 @@
       add('lamp', c.tx - 0.5, c.ty + 1.3, 0);
     }
 
+    // dungeon entrances: half-hidden by a ring of the zone's own props behind them (the screen-up side), open toward the front
+    (V.DUNGEONS || []).forEach((d, z) => {
+      if (!d) return;
+      const [gx, gy] = V.gateTile(z); add('dentry', gx, gy, z);
+      for (let i = 0; i < 9; i++) {
+        const a = Math.PI * 1.25 + (i / 8 - 0.5) * Math.PI * 1.25, rr = 2.9 + (i % 2) * 0.7; // centred on screen-up
+        add(d.ring[i % d.ring.length], gx + Math.cos(a) * rr, gy + Math.sin(a) * rr);
+      }
+    });
+
     for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
       const k = j * N + i, t = tiles[k], z = zones[k];
       if (t === T.PLAZA || t === T.ROAD || t === T.WATER || t === T.ABYSS) continue;
       const r = Math.hypot(i + 0.5 - C, j + 0.5 - C);
       if (r < 10) continue;
-      if (campDist(i + 0.5, j + 0.5) < 3.6) { R(); R(); R(); continue; }
+      if (campDist(i + 0.5, j + 0.5) < 3.6 || gateDist(i + 0.5, j + 0.5) < 2.6) { R(); R(); R(); continue; }
       const p = R(), x = i + 0.2 + R() * 0.6, y = j + 0.2 + R() * 0.6;
       const rim = i < 2 || j < 2 || i > N - 3 || j > N - 3;
       if (rim && p < 0.45) { add(z === 6 ? 'voidspire' : z === 5 ? 'snowpine' : 'pine', x, y); continue; }
@@ -166,7 +181,7 @@
       for (const strict of [true, false]) for (let tries = 0; tries < 6000 && out.length < count; tries++) {
         const i = (R() * N) | 0, j = (R() * N) | 0, r = Math.hypot(i + 0.5 - C, j + 0.5 - C);
         if (zones[j * N + i] !== zone || r < minR || r > (maxR || 999) || !free(i, j, strict)) continue;
-        if (campDist(i + 0.5, j + 0.5) < 6.5 || pathDist(i + 0.5, j + 0.5) < 4.5) continue; // nothing hostile beside a camp or on the way to it
+        if (campDist(i + 0.5, j + 0.5) < 6.5 || pathDist(i + 0.5, j + 0.5) < 4.5 || gateDist(i + 0.5, j + 0.5) < 7) continue; // nothing hostile beside a camp or on the way to it
         if (out.some((o) => Math.hypot(o[0] - i - 0.5, o[1] - j - 0.5) < (strict ? 3 : 2))) continue;
         out.push([i + 0.5, j + 0.5]);
       }
@@ -174,6 +189,53 @@
     }
 
     return { seed, tiles, zones, solid, props, grid, spawnPoints, camps, zoneOf: (i, j) => (i < 0 || j < 0 || i >= N || j >= N) ? -1 : zones[j * N + i] };
+  };
+
+  // ---------- dungeons: a fixed layout of rooms and corridors cut out of the abyss ----------
+  V.generateDungeon = function (z) {
+    const D = V.DUNGEONS[z], seed = 9000 + z * 77, R = rng(seed);
+    const tiles = new Uint8Array(N * N).fill(T.ABYSS), zones = new Uint8Array(N * N).fill(z), solid = new Uint8Array(N * N).fill(1);
+    const rooms = V.DUN_ROOMS, fl = D.floor.map((k) => T[k]);
+    const segDist = (px, py, ax, ay, bx, by) => { const dx = bx - ax, dy = by - ay, t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy))); return Math.hypot(px - ax - dx * t, py - ay - dy * t); };
+    for (let j = 1; j < N - 1; j++) for (let i = 1; i < N - 1; i++) {
+      const cx = i + 0.5, cy = j + 0.5, n = fbm(cx * 0.21, cy * 0.21, seed);
+      let open = false;
+      for (const [rx, ry, rr] of rooms) if (Math.hypot(cx - rx, cy - ry) < rr + (n - 0.5) * 2.2) open = true;
+      for (let r = 0; r + 1 < rooms.length && !open; r++) if (segDist(cx, cy, rooms[r][0], rooms[r][1], rooms[r + 1][0], rooms[r + 1][1]) < 1.7 + (n - 0.5) * 0.8) open = true;
+      if (!open) continue;
+      const k = j * N + i; solid[k] = 0;
+      tiles[k] = fbm(cx * 0.17, cy * 0.17, seed + 3) > 0.58 ? fl[1] : fl[0];
+    }
+    const props = [];
+    const add = (type, tx, ty, v) => { const [x, y] = V.toWorld(tx, ty); props.push({ type, tx, ty, x, y, v: v ?? ((R() * 3) | 0), r: V.PROPS[type].r }); };
+    const openAt = (tx, ty) => { const i = Math.floor(tx), j = Math.floor(ty); return i > 0 && j > 0 && i < N - 1 && j < N - 1 && !solid[j * N + i]; };
+    const [ex, ey] = V.toTile(...V.dunExit()); add('dentry', ex, ey, z);
+    rooms.forEach(([rx, ry, rr, kind], ri) => {
+      // light: braziers to either side; the boss chamber gets a ring of pillars
+      for (const [a, b] of [[-0.62, -0.62], [0.62, 0.62]]) { const tx = rx + a * (rr - 1.6), ty = ry + b * (rr - 1.6); if (openAt(tx, ty)) add('brazier', tx, ty, 0); }
+      if (kind === 'boss') for (let q = 0; q < 6; q++) { const a = q / 6 * Math.PI * 2 + 0.3, tx = rx + Math.cos(a) * (rr - 2.4), ty = ry + Math.sin(a) * (rr - 2.4); if (openAt(tx, ty)) add('pillar', tx, ty); }
+      // themed clutter around the walls, never in the middle where the fighting happens
+      for (let q = 0; q < 14 + ri * 2; q++) {
+        const a = R() * Math.PI * 2, d = rr - 0.8 - R() * 1.6, tx = rx + Math.cos(a) * d, ty = ry + Math.sin(a) * d;
+        const type = D.deco[(R() * D.deco.length) | 0];
+        if (kind === 'start' && Math.hypot(tx - ex, ty - ey) < 2.5) continue;
+        if (openAt(tx, ty) && openAt(tx + 0.8, ty) && openAt(tx, ty + 0.8) && openAt(tx - 0.8, ty) && openAt(tx, ty - 0.8)) add(type, tx, ty);
+      }
+    });
+    const grid = new Array(N * N);
+    for (const p of props) { if (!p.r) continue; const k = Math.floor(p.ty) * N + Math.floor(p.tx); (grid[k] || (grid[k] = [])).push(p); }
+    const free = (i, j) => { if (solid[j * N + i]) return false; for (let b = j - 1; b <= j + 1; b++) for (let a = i - 1; a <= i + 1; a++) if (grid[b * N + a] || solid[b * N + a]) return false; return true; };
+    // spread points inside a room (tile coords) for its pack
+    function roomPoints(ri, count) {
+      const [rx, ry, rr] = rooms[ri], out = [];
+      for (let tries = 0; tries < 800 && out.length < count; tries++) {
+        const a = R() * Math.PI * 2, d = Math.sqrt(R()) * (rr - 2.2), i = Math.floor(rx + Math.cos(a) * d), j = Math.floor(ry + Math.sin(a) * d);
+        if (!free(i, j) || out.some((o) => Math.hypot(o[0] - i - 0.5, o[1] - j - 0.5) < 1.6)) continue;
+        out.push([i + 0.5, j + 0.5]);
+      }
+      return out;
+    }
+    return { seed, dungeon: z, tiles, zones, solid, props, grid, camps: [], roomPoints, spawnPoints: () => [], zoneOf: (i, j) => (i < 0 || j < 0 || i >= N || j >= N) ? -1 : zones[j * N + i] };
   };
 
   // ---------- color helpers ----------
@@ -585,6 +647,110 @@
       fill(p, k, 1, 1, 29, 10, (x, y) => { const w = (y - 1) * 1.6; return Math.abs(x - 15) < w && y < 9.5 ? 0.6 - (x - 15) / 30 - (y < 3 ? -0.2 : 0) : null; }, wood);
       return { c: p.outline(OUT).canvas(), ax: 15 * k, ay: 28 * k };
     },
+    dgate(v) { // a ruined stone archway, runes glowing up its pillars
+      const k = 1.7, p = new Pix(60 * k, 70 * k), cx = 30, rune = [u32('#8f7bff'), u32('#c58bff'), u32('#ffb02e')][v % 3], dark = ramp('#05040a', '#0b0816', '#151026', '#221838');
+      fill(p, k, 13, 18, 47, 66, (x, y) => { const nx = (x - cx) / 17, top = 30 - Math.sqrt(Math.max(0, 1 - nx * nx)) * 13; return y < top ? null : 0.1 + Math.max(0, 1 - Math.hypot(nx, (y - 48) / 22)) * 0.85; }, dark);
+      for (const [x0, x1] of [[5, 14], [46, 55]]) fill(p, k, x0, 24, x1, 66, (x, y, px, py) => 0.62 - (x - x0) / 26 + (Math.floor(y / 5) % 2 ? 0.06 : -0.04) + (hash(px >> 1, py >> 1, 5) - 0.5) * 0.12, RUIN);
+      fill(p, k, 4, 1, 56, 34, (x, y, px, py) => {
+        const d = Math.hypot((x - cx) / 26, (y - 31) / 30), din = Math.hypot((x - cx) / 17, (y - 31) / 17);
+        if (y > 31 || d > 1 || din < 1) return null;
+        return 0.7 - (x - cx) / 80 - (1 - d) * 0.1 + (Math.floor(Math.atan2(y - 31, x - cx) * 6) % 2 ? 0.05 : -0.05);
+      }, RUIN);
+      fill(p, k, 26, 0, 34, 7, (x, y) => 0.85 - y / 30, GSTONE);
+      for (const [x, y] of [[9, 30], [10, 38], [9, 46], [10, 54], [50, 30], [51, 38], [50, 46], [51, 54], [30, 3]]) { p.set(x * k, y * k, rune); p.set(x * k + 1, y * k, rune); p.set(x * k, y * k + 1, rune); }
+      fill(p, k, 2, 64, 58, 69, (x) => 0.45 - (x - 30) / 120, STONE);
+      return { c: p.outline(OUT).canvas(), ax: 30 * k, ay: 66 * k, glow: [30 * k, 44 * k] };
+    },
+    portal(v) { // a ring of dark stone holding a tear in the air; the swirl is drawn live in the game
+      const k = 1.7, p = new Pix(52 * k, 70 * k), cx = 26, cy = 34;
+      const core = [ramp('#081420', '#12304a', '#2a6c9a', '#8fe0ff'), ramp('#10061c', '#2a1048', '#6a2fb0', '#d29bff'), ramp('#1a1206', '#4a3410', '#b08a2c', '#fff0b8')][v % 3];
+      fill(p, k, 4, 4, 48, 64, (x, y, px, py) => {
+        const d = Math.hypot((x - cx) / 21, (y - cy) / 29);
+        if (d > 1) return null;
+        if (d > 0.8) return null;
+        return 0.15 + (1 - d) * 0.9 + (hash(px >> 1, py >> 1, 9) - 0.5) * 0.1;
+      }, core);
+      fill(p, k, 3, 3, 49, 65, (x, y, px, py) => {
+        const d = Math.hypot((x - cx) / 22, (y - cy) / 30);
+        if (d > 1 || d < 0.8) return null;
+        return 0.55 - (x - cx) / 70 + (Math.floor(Math.atan2(y - cy, x - cx) * 5) % 2 ? 0.08 : -0.06) + (hash(px >> 1, py, 4) - 0.5) * 0.1;
+      }, OBSID);
+      fill(p, k, 8, 60, 44, 68, (x) => 0.55 - (x - cx) / 60, STONE);
+      return { c: p.outline(OUT).canvas(), ax: 26 * k, ay: 64 * k, glow: [26 * k, 34 * k] };
+    },
+    dentry(z) { // each zone's dungeon mouth; glow = the opening, fx = points the game animates (flames, candles)
+      const k = 1.7, p = new Pix(64 * k, 76 * k), cx = 32, by = 72;
+      const DARK = ramp('#030206', '#08060e', '#0f0b18', '#191226', '#251a38');
+      // an arched opening from oy (top of the arch) down to the base, brighter toward its heart
+      const hole = (ox, oy, rx, ry, rmp, seed = 0) => fill(p, k, ox - rx, oy - ry, ox + rx, by, (x, y, px, py) => {
+        const nx = (x - ox) / rx, top = oy - Math.sqrt(Math.max(0, 1 - nx * nx)) * ry;
+        if (Math.abs(nx) > 1 || y < top) return null;
+        return 0.08 + Math.max(0, 1 - Math.hypot(nx * 1.1, (y - by + 6) / (by - oy + ry))) * 0.8 + (hash(px >> 1, py >> 1, seed) - 0.5) * 0.08;
+      }, rmp || DARK);
+      const dots = (pts, col, col2) => { for (const [x, y] of pts) { p.set(x * k, y * k, u32(col)); p.set(x * k + 1, y * k, u32(col)); if (col2) p.set(x * k, y * k + 1, u32(col2)); } };
+      let glow = [cx, 54], fx = [];
+      if (z === 1 || z === 0) { // Hollowroot: a giant hollow root, moss on its shoulders, glowing caps at its feet
+        const WOOD = ramp('#0e0a08', '#1b140f', '#2b2018', '#3f2f22', '#56412e');
+        fill(p, k, 0, 2, 64, by + 1, (x, y, px, py) => {
+          const t = (by - y) / by; let hw = 26 - t * 13 + Math.sin(y * 0.33) * 1.8 + (hash(py >> 2, 3, 1) - 0.5) * 2.2;
+          if (y > by - 9) hw += (y - (by - 9)) * 1.9;
+          if (y < 18) hw -= (18 - y) * (0.55 + hash(Math.floor(x / 4), 2, 1) * 0.5); // a broken, ragged crown
+          if (Math.abs(x - cx) > hw) return null;
+          const nx = (x - cx) / hw;
+          return 0.58 - nx * 0.35 + ((Math.floor(x * 0.55 + Math.sin(y * 0.18) * 2.5) % 3) === 0 ? -0.18 : 0) + (hash(px, py, 1) - 0.5) * 0.1;
+        }, WOOD);
+        line(p, k, cx - 7, 12, cx - 22, 3, 2.4, WOOD); line(p, k, cx + 6, 9, cx + 19, 1, 2.1, WOOD); line(p, k, cx - 2, 6, cx + 2, 0, 1.6, WOOD);
+        fill(p, k, 0, 0, 64, 30, (x, y, px, py) => { const t = (by - y) / by, hw = 26 - t * 13; if (Math.abs(x - cx) > hw + 1 || hash(px >> 1, py >> 1, 6) < 0.5) return null; return 0.35 + hash(px, py, 9) * 0.45; }, LEAF);
+        hole(cx, 47, 11, 11, ramp('#030605', '#071210', '#0c2420', '#164038', '#2a6c5c'), 1);
+        dots([[10, 69], [12, 67], [52, 68], [49, 66], [18, 64]], '#5fd3e8', '#2a7f90');
+        glow = [cx, 56];
+      } else if (z === 2) { // Sunken Crypt: a mausoleum door, drowned green within, candles to either side
+        fill(p, k, 8, 18, 56, by, (x, y, px, py) => 0.6 - (x - cx) / 90 + (Math.floor(y / 4) % 2 ? 0.05 : -0.04) + (Math.floor((x + (Math.floor(y / 4) % 2) * 3) / 6) % 2 ? 0.03 : 0) + (hash(px >> 1, py >> 1, 2) - 0.5) * 0.12, GSTONE);
+        fill(p, k, 4, 4, 60, 20, (x, y) => { const w = (y - 4) * 1.9 + 4; return Math.abs(x - cx) < w ? 0.75 - (x - cx) / 80 - (y > 17 ? 0.25 : 0) : null; }, GSTONE);
+        line(p, k, cx, 7, cx, 15, 1.2, BONE); line(p, k, cx - 3, 10, cx + 3, 10, 1.2, BONE);
+        for (const x0 of [10, 50]) fill(p, k, x0, 20, x0 + 4, by, (x) => 0.4 - (x - x0) / 12, STONE);
+        hole(cx, 40, 9, 6, ramp('#020504', '#061210', '#0a2018', '#123a2a', '#1f6044'), 2);
+        fill(p, k, 2, by - 3, 62, by + 1, (x) => 0.45 - (x - cx) / 140, STONE);
+        for (const x0 of [5, 57]) { fill(p, k, x0 - 1, 58, x0 + 1, 66, () => 0.85, BONE); fx.push([x0, 57]); }
+        glow = [cx, 58];
+      } else if (z === 3) { // Warden's Forge: a heavy lintel on two pillars, the forge burning inside, braziers on top
+        const EMB = ramp('#1a0604', '#4a1208', '#8a2a0c', '#d0561a', '#ffb23d');
+        for (const [x0, x1] of [[4, 16], [48, 60]]) fill(p, k, x0, 16, x1, by, (x, y, px, py) => 0.62 - (x - x0) / 30 + (Math.floor(y / 5) % 2 ? 0.07 : -0.04) + (hash(px >> 1, py >> 1, 3) - 0.5) * 0.14 - (hash(px >> 2, py >> 2, 7) > 0.93 ? 0.35 : 0), RUIN);
+        fill(p, k, 0, 8, 64, 18, (x, y, px, py) => 0.7 - (x - cx) / 120 - (y > 15 ? 0.2 : 0) + (hash(px >> 1, py, 4) - 0.5) * 0.1, RUIN);
+        fill(p, k, 16, 18, 48, by, (x, y, px, py) => 0.12 + Math.max(0, 1 - Math.hypot((x - cx) / 16, (y - by) / 40)) * 0.9 + (hash(px >> 1, py >> 1, 5) - 0.5) * 0.1, EMB);
+        for (const x0 of [10, 54]) { fill(p, k, x0 - 5, 3, x0 + 5, 9, (x, y) => (Math.abs(x - x0) < 5 - (8 - y) * 0.6) ? 0.5 - (x - x0) / 20 : null, METAL); fx.push([x0, 3]); }
+        glow = [cx, 54];
+      } else if (z === 4) { // Barrow Deeps: a grassy mound, a doorway of standing stones
+        const TURF = ramp('#121a10', '#1c2a17', '#2a3d20', '#3b542b', '#4f6c37');
+        fill(p, k, 0, 14, 64, by + 1, (x, y, px, py) => { const nx = (x - cx) / 32, top = by - Math.sqrt(Math.max(0, 1 - nx * nx)) * 56; if (Math.abs(nx) > 1 || y < top) return null; return 0.62 - nx * 0.3 - (y - top) / 120 + (hash(px >> 1, py >> 1, 4) > 0.8 ? 0.12 : 0) + (hash(px, py, 8) - 0.5) * 0.1; }, TURF);
+        hole(cx, 50, 10, 6, null, 4);
+        for (const x0 of [17, 43]) fill(p, k, x0 - 3.5, 42, x0 + 3.5, by, (x, y, px, py) => 0.62 - (x - x0) / 14 + (hash(px >> 1, py >> 1, x0) - 0.5) * 0.16, STONE);
+        fill(p, k, 12, 38, 52, 44, (x, y, px, py) => 0.72 - (x - cx) / 90 - (y > 42 ? 0.2 : 0) + (hash(px >> 1, py, 6) - 0.5) * 0.12, STONE);
+        dots([[22, 40], [32, 40], [42, 40]], '#c8d7a0');
+        glow = [cx, 60];
+      } else if (z === 5) { // Rime Vault: a ring of ice shards around a frozen tear
+        hole(cx, 30, 17, 22, ramp('#06101a', '#0d2638', '#1d4f70', '#4d9cc4', '#bfeeff'), 5);
+        const ICE = ramp('#1f3a4d', '#3d6c87', '#6fa6c2', '#a9d8ec', '#e4f6ff');
+        for (let i = 0; i < 16; i++) { // crystals grow up and out from the frame, longest at the crown
+          const a = -Math.PI / 2 + (i - 7.5) / 15 * Math.PI * 1.35, r0 = 19, up = Math.max(0, -Math.sin(a)), len = 4 + up * 9 + hash(i, 1, 5) * 4;
+          const x0 = cx + Math.cos(a) * r0 * 0.92, y0 = 36 + Math.sin(a) * r0 * 1.3, b = a * 0.55 - Math.PI / 2 * 0.45;
+          line(p, k, x0, y0, x0 + Math.cos(b) * len, y0 + Math.sin(b) * len, 2.6 + hash(i, 2, 5) * 1.8, ICE);
+        }
+        fill(p, k, 6, by - 6, 58, by + 1, (x, y, px, py) => { const nx = (x - cx) / 26; return Math.abs(nx) < 1 - (by - y) / 14 ? 0.7 - nx * 0.2 + (hash(px, py, 3) - 0.5) * 0.1 : null; }, ICE);
+        glow = [cx, 44];
+      } else { // Throne of Nothing: a jagged tear in the air, shards of black glass orbiting it
+        const VOIDR = ramp('#05020a', '#16072a', '#3a1260', '#7a35c0', '#e0b4ff');
+        fill(p, k, 10, 4, 54, by, (x, y, px, py) => {
+          const t = (y - 4) / (by - 4), hw = Math.sin(t * Math.PI) * 13 + (hash(py >> 1, 1, 6) - 0.5) * 6 + Math.sin(y * 0.7) * 2.5;
+          const off = Math.sin(y * 0.15) * 4, d = Math.abs(x - cx - off) / Math.max(1, hw);
+          if (d > 1) return null;
+          return d > 0.82 ? 0.97 : 0.1 + (1 - d) * 0.7 + (hash(px >> 1, py >> 1, 7) - 0.5) * 0.1;
+        }, VOIDR);
+        for (let i = 0; i < 7; i++) { const a = i / 7 * Math.PI * 2, x0 = cx + Math.cos(a) * 26, y0 = 38 + Math.sin(a) * 30; fill(p, k, x0 - 3, y0 - 4, x0 + 3, y0 + 4, (x, y) => Math.abs(x - x0) / 3 + Math.abs(y - y0) / 4 < 1 ? 0.3 + (x0 - x) / 10 : null, OBSID); }
+        glow = [cx, 40];
+      }
+      return { c: p.outline(OUT).canvas(), ax: cx * k, ay: by * k, glow: [glow[0] * k, glow[1] * k], fx: fx.map(([x, y]) => [x * k, y * k]) };
+    },
     board() {
       const k = 1.5, p = new Pix(26 * k, 36 * k), wood = ramp('#241a12', '#3d2b1d', '#54402c', '#6c5338'), paper = ramp('#8f8676', '#c8bfa8', '#e8e0cc'), ink = u32('#2a2018'), seal = u32('#8a2b22');
       fill(p, k, 4, 18, 6, 34, (x) => x < 5 ? 1 : 0.4, wood); fill(p, k, 20, 18, 22, 34, (x) => x < 21 ? 1 : 0.4, wood);
@@ -617,7 +783,7 @@
   // Enemies and minions are 3D-rendered sprite sheets in assets/foes (tools/sprite-gen/foes.js); only props are drawn here.
   V.buildSprites = function () {
     const S = {};
-    for (const k of Object.keys(builders)) S[k] = [0, 1, 2].map((v) => builders[k](v));
+    for (const k of Object.keys(builders)) S[k] = (k === 'dentry' ? [0, 1, 2, 3, 4, 5, 6] : [0, 1, 2]).map((v) => builders[k](v));
     return S;
   };
 

@@ -1,5 +1,6 @@
 // Town and camp props (training dummy, tents, well, bounty board, lamp, brazier), built with the same
-// SDF kit, ramps and lighting as the heroes and enemies. Static: one view each, rendered by render_props.js.
+// SDF kit, ramps and lighting as the heroes and enemies. Animated: render_anim.js sets H.ph (0..2π) for each
+// frame of the idle loop and the rigs below read it (pennant, bucket, notices, dummy, flames).
 // Model space: y up, ground at y = 0, ~1 unit per pixel at hero scale.
 (function (H) {
   'use strict';
@@ -65,6 +66,8 @@
       const a = (i - 1.5) * 0.45;
       parts.push(P((p) => sd.capsule(p, [s * 13.5, 31, 0], [s * (16 + i * 0.3), 31 + Math.sin(a) * 2.4, Math.cos(a) * 1.6 - 0.8], 0.35), () => ({ m: 'gold', b: -1 })));
     }
+    // the sack sways on its post (everything above the base slab)
+    H.R.wrapRange(parts, 1, parts.length, H.R.xf([0, 0, 0], [0, 0, 0], H.R.mm(H.R.rz(Math.sin(H.ph || 0) * 0.035), H.R.rx(Math.cos(H.ph || 0) * 0.02))));
     return { parts, bound: { c: [0, 24, 0], r: 30 } };
   };
 
@@ -102,7 +105,7 @@
       const q = sub(p, [-(L + 0.6), Ht + 1.5, 0]);
       const w = 7 - q[0] * 0;
       const d2 = sd.poly2(-q[0] - 0.4, q[1], [[0, 0], [0, 3.4], [w, 1.7]]);
-      return sd.extrude(d2, q[2] + Math.sin(q[0] * 0.8) * 0.4, 0.25);
+      return sd.extrude(d2, q[2] + Math.sin(q[0] * 0.8 - (H.ph || 0)) * (0.4 + Math.max(0, -q[0]) * 0.12), 0.25); // the pennant flutters
     }, () => ({ m: cloth, b: 2 })));
     return { parts, bound: { c: [0, 12, 0], r: 34 } };
   };
@@ -128,8 +131,10 @@
     parts.push(P((p) => sd.capsule(p, [-R0 - 1.5, 25, 0], [R0 + 1.5, 25, 0], 1.1), () => 'woodlt'));
     parts.push(P((p) => sd.capsule(p, [-R0 - 2.2, 25, 0], [-R0 - 2.2, 22, 2.6], 0.5), () => 'blackiron')); // crank
     parts.push(P((p) => Math.hypot(Math.hypot(p[0] - 1, p[2]) - 1.6, p[1] - 25) - 1, () => 'rope')); // rope coil
+    const swing = parts.length; // the bucket swings on its rope
     parts.push(P((p) => sd.capsule(p, [1, 24, 0], [1, 15.5, 0], 0.25), () => 'rope'));
     parts.push(P((p) => Math.max(sd.roundCone(p, [1, 11.5, 0], [1, 15, 0], 2.0, 2.6), -sd.sphere(p, [1, 16.4, 0], 2.2)), (p) => near(p[1], 13.2, 0.4) ? 'blackiron' : 'wood'));
+    H.R.wrapRange(parts, swing, parts.length, H.R.xf([1, 24, 0], [1, 24, 0], H.R.mm(H.R.rz(Math.sin(H.ph || 0) * 0.14), H.R.rx(Math.cos(H.ph || 0) * 0.06))));
     // roof
     parts.push(P((p) => prism(p, [0, 28.5, 0], R0 + 3.5, 9.5, 8) - 0.3, (p) => {
       const row = Math.floor((p[1] - 28.5) / 1.8), u = p[0] / 3 + row * 0.5;
@@ -151,8 +156,8 @@
     parts.push(P((p) => prism(p, [0, 32.2, 0], 15, 4.6, 4.4) - 0.2, (p) => ({ m: 'wood', b: Math.floor(p[0] / 2.2) % 2 ? 0 : -1 })));
     // notices: [x, y, half w, half h, tilt]
     const notes = [[-6.6, 24.5, 3.4, 4.4, 0.06], [0.6, 25.5, 2.9, 3.2, -0.08], [6.8, 22.8, 3.2, 4.6, 0.05], [-0.4, 18.8, 3.6, 2.2, 0.02]];
-    for (const [x, y, w, h, tilt] of notes) {
-      const c = Math.cos(tilt), s = Math.sin(tilt);
+    notes.forEach(([x, y, w, h, tilt0], i) => {
+      const tilt = tilt0 + Math.sin((H.ph || 0) + i * 1.7) * 0.05, c = Math.cos(tilt), s = Math.sin(tilt); // notices stir in the wind
       parts.push(P((p) => {
         const q = sub(p, [x, y, 1.15]), u = q[0] * c + q[1] * s, v = -q[0] * s + q[1] * c;
         return sd.roundBox([u, v, q[2]], [w, h, 0.2], 0.1);
@@ -162,7 +167,7 @@
         if (Math.abs(u) < w - 0.9 && v < h - 2 && v > -h + 0.8 && ((v + 10) % 1.3) < 0.45 && hash(Math.floor(v * 0.77), x) < 0.9) return { m: 'black', b: 3 }; // ink lines
         return { m: 'paper', b: 0 };
       }));
-    }
+    });
     return { parts, bound: { c: [0, 20, 0], r: 26 } };
   };
 
@@ -177,7 +182,7 @@
     parts.push(P((p) => box(p, [0, 38.5, 0], [2.9, 3.4, 2.9], 0.3), (p) => {
       const q = sub(p, [0, 38.5, 0]);
       const edge = (Math.abs(q[0]) > 2.1 && Math.abs(q[2]) > 2.1) || Math.abs(q[1]) > 2.7;
-      return edge ? 'blackiron' : { m: 'lampglow', e: 4 };
+      return edge ? 'blackiron' : { m: 'lampglow', e: 4 + Math.round(Math.sin((H.ph || 0) * 3) * 0.6) }; // the lantern flickers
     }));
     parts.push(P((p) => sd.roundCone(p, [0, 42, 0], [0, 45.2, 0], 3.8, 0.6), () => 'blackiron'));
     parts.push(P((p) => sd.sphere(p, [0, 45.6, 0], 0.9), () => 'brass'));
@@ -201,7 +206,7 @@
     for (let i = 0; i < 9; i++) {
       const a = i * 2.39, r = i === 0 ? 0 : 2 + (i % 3) * 1.8;
       const c = [Math.cos(a) * r, top - 1.4 + hash(i, 1) * 1.2, Math.sin(a) * r];
-      parts.push(P((p) => sd.sphere(p, c, 1.6 + hash(i, 2) * 0.8), (p) => ({ m: 'flame', e: p[1] > top - 0.2 ? 4 : 2 })));
+      parts.push(P((p) => sd.sphere(p, c, 1.6 + hash(i, 2) * 0.8), (p) => ({ m: 'flame', e: clamp((p[1] > top - 0.2 ? 4 : 2) + Math.round(Math.sin((H.ph || 0) * 2 + i * 1.9) * 1.2), 1, 6) }))); // coals breathe
     }
     return { parts, bound: { c: [0, 10, 0], r: 20 }, top };
   };

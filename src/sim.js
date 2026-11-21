@@ -12,6 +12,12 @@
     const r1 = (v) => Math.round(v * 10) / 10;
     const R = Math.round;
     const S = { t: 0, players: new Map(), foes: [], shots: [], minions: [], fields: [], events: [], timers: [], nextId: 1, spawn: { x: 0, y: 0 } };
+    // a dungeon instance: { zone, mode, size } — no camps, no respawning enemies, three lives each
+    S.dun = opts.dun || null; S.lives = new Map(); S.cleared = false; S.wiped = false;
+    const DM = S.dun ? V.DUN_MODES[S.dun.mode] : null;
+    const inCamp = (x, y) => !S.dun && V.inCamp(x, y);
+    const nearTrainer = (cls, x, y, pad) => S.dun ? !V.TRAINERS[cls] : V.nearTrainer(cls, x, y, pad);
+    const nearBoard = (x, y, pad) => !S.dun && V.nearBoard(x, y, pad);
     const emit = (e) => S.events.push(e);
     const id = () => S.nextId++;
     const later = (t, fn) => S.timers.push({ t, fn });
@@ -27,7 +33,35 @@
         root: 0, stun: 0, slow: 0, exposed: 0, marked: 0, plagued: 0, blind: 0, poison: null, taunt: null, deathMark: null,
         kb: null, wx: x, wy: y, wt: 0, dead: false, respawn: 0, idle: 0, tgt: null, retarget: 0, hitBy: new Map(), adds: null, isAdd: false, dash: null };
     }
+    function addBoss(type, x, y, level, z, tune) {
+      const boss = tune(makeFoe(type, x, y, level, false, z));
+      S.foes.push(boss);
+      const sum = (boss.def.abilities || []).find((a) => a.kind === 'summon');
+      if (sum) { // a fixed pool of adds the boss can call, so every client knows them from the start
+        boss.adds = [];
+        for (let k = 0; k < sum.n * 2; k++) {
+          const add = tune(makeFoe(sum.add, x, y, Math.max(1, level - 2), false, z));
+          add.dead = true; add.isAdd = true; add.respawn = Infinity;
+          S.foes.push(add); boss.adds.push(add);
+        }
+      }
+      return boss;
+    }
+    function populateDungeon() {
+      const d = S.dun, D = V.DUNGEONS[d.zone], lv = V.dunLevel(d.zone), rooms = V.DUN_ROOMS;
+      const tune = (f) => { const k = DM.hp * (1 + 0.4 * (d.size - 1)); f.maxHp = f.hp = R(f.maxHp * k); f.dmg *= DM.dmg; return f; };
+      const PACK = { 1: [5, 1], 2: [6, 1], 3: [6, 2] }; // room -> [normal, elite]
+      rooms.forEach(([rx, ry, , kind], ri) => {
+        if (kind === 'pack') {
+          const [n, el] = PACK[ri] || [5, 1], pts = map.roomPoints(ri, n + el);
+          pts.forEach(([i, j], q) => { const [x, y] = V.toWorld(i, j); S.foes.push(tune(makeFoe(D.packs[q % D.packs.length], x, y, Math.min(V.MAX_LEVEL, lv - 2 + (q % 3)), q < el, d.zone))); });
+        } else if (kind === 'boss') { const [x, y] = V.toWorld(rx + 1, ry); S.boss = addBoss(D.boss, x, y, Math.min(V.MAX_LEVEL + 3, lv + 3), d.zone, tune); }
+      });
+      const [sx, sy] = V.toWorld(rooms[0][0] + 1, rooms[0][1]);
+      S.spawn = { x: sx, y: sy };
+    }
     (function populate() {
+      if (S.dun) return populateDungeon();
       const lerp = (a, b, t) => a + (b - a) * clamp(t, 0, 1);
       for (let z = 1; z < ZONE_INFO.length; z++) {
         const info = ZONE_INFO[z], inner = z <= 4;
@@ -39,20 +73,7 @@
         }
         if (info.boss) {
           const pts = map.spawnPoints(z, 1, inner ? V.INNER - 12 : 58, inner ? V.INNER - 2 : 999);
-          if (pts.length) {
-            const [x, y] = V.toWorld(...pts[0]);
-            const boss = makeFoe(info.boss, x, y, info.lv[1], false, z);
-            S.foes.push(boss);
-            const sum = (boss.def.abilities || []).find((a) => a.kind === 'summon');
-            if (sum) { // a fixed pool of adds the boss can call, so every client knows them from the start
-              boss.adds = [];
-              for (let k = 0; k < sum.n * 2; k++) {
-                const add = makeFoe(sum.add, x, y, Math.max(1, info.lv[1] - 2), false, z);
-                add.dead = true; add.isAdd = true; add.respawn = Infinity;
-                S.foes.push(add); boss.adds.push(add);
-              }
-            }
-          }
+          if (pts.length) { const [x, y] = V.toWorld(...pts[0]); addBoss(info.boss, x, y, info.lv[1], z, (f) => f); }
         }
       }
       for (const [a, b] of [[3, -1.5], [1.5, -3], [3.6, -3.4]]) { const [x, y] = V.toWorld(V.C + a, V.C + b); S.foes.push(makeFoe('dummy', x, y, 1, false, 0)); }
@@ -79,7 +100,7 @@
       p.power = (1 + 0.07 * (V.statLv(p.level) - 1)) * (1 + p.mods.dmg);
       p.resMax = 100;
     }
-    S.addPlayer = function (pid, ch = {}) {
+    S.addPlayer = function (pid, ch = {}, moved) {
       const cls = CLASSES[ch.cls] ? ch.cls : 'necromancer', sp = spawnPoint(), level = clamp(ch.level | 0 || 1, 1, V.MAX_LEVEL);
       const p = { id: pid, name: ch.name || 'Wanderer', admin: !!ch.admin, cls, level, xp: Math.max(0, ch.xp | 0), kills: ch.kills | 0,
         talents: Array.isArray(ch.bar) ? V.cleanTalents(cls, level, ch.talents) : {}, bounties: V.cleanBounties(ch.bounties),
@@ -89,29 +110,31 @@
       // characters from before the skill web keep their level but get every point back (once)
       p.refunded = !Array.isArray(ch.bar) && level > 1;
       const gear = V.cleanGear(ch.gear); p.bag = gear.inv; p.eq = gear.eq; // (p.inv is the invulnerability timer)
+      p.found = Array.isArray(ch.found) ? [...new Set(ch.found.filter((z) => Number.isInteger(z) && V.DUNGEONS[z]))] : [];
       p.trial = ch.trial && typeof ch.trial === 'object' ? { n: Math.max(0, ch.trial.n | 0), done: !!ch.trial.done } : null;
       p.bar = V.cleanBar(cls, p.talents, Array.isArray(ch.bar) ? ch.bar : [CLASSES[cls].skills[0]]);
       for (const x of CLASSES[cls].extra || []) if (!p.bar.includes(x)) { const i = p.bar.lastIndexOf(null); if (i >= 0) p.bar[i] = x; } // free bonus skills go straight onto the bar
       applyStats(p, true);
       p.res = RES[CLASSES[cls].res].start;
+      if (S.dun) { if (!S.lives.has(pid)) S.lives.set(pid, V.DUN_LIVES); if (S.lives.get(pid) <= 0) { p.dead = Infinity; p.spect = true; p.hp = 0; } }
       S.players.set(pid, p);
-      emit({ e: 'join', id: pid, name: p.name });
+      emit(moved ? { e: 'join', id: pid, name: p.name, q: 1 } : { e: 'join', id: pid, name: p.name });
       return p;
     };
-    S.removePlayer = function (pid) {
+    S.removePlayer = function (pid, moved) {
       const p = S.players.get(pid);
       if (!p) return;
       S.players.delete(pid);
       for (const m of S.minions) if (m.owner === pid) m.life = 0;
       for (const f of S.foes) if (f.tgt && f.tgt.id === pid) f.tgt = null;
       S.fields = S.fields.filter((F) => F.owner !== pid || F.kind === 'fire');
-      emit({ e: 'leave', id: pid, name: p.name });
+      emit(moved ? { e: 'leave', id: pid, name: p.name, q: 1 } : { e: 'leave', id: pid, name: p.name });
     };
-    S.charData = (pid) => { const p = S.players.get(pid); return p && { level: p.level, xp: R(p.xp), kills: p.kills, talents: p.talents, bounties: p.bounties, bar: p.bar, cls: p.cls, trial: p.trial, gear: { inv: p.bag, eq: p.eq } }; };
+    S.charData = (pid) => { const p = S.players.get(pid); return p && { level: p.level, xp: R(p.xp), kills: p.kills, talents: p.talents, bounties: p.bounties, bar: p.bar, cls: p.cls, trial: p.trial, gear: { inv: p.bag, eq: p.eq }, found: p.found }; };
     S.learn = function (pid, node) {
       const p = S.players.get(pid);
       if (!p || !V.canLearn(p.cls, p.level, p.talents, node)) return false;
-      if (!V.nearTrainer(p.cls, p.x, p.y, 40)) { emit({ e: 'nope', id: pid, why: 'trainer' }); return false; }
+      if (!nearTrainer(p.cls, p.x, p.y, 40)) { emit({ e: 'nope', id: pid, why: 'trainer' }); return false; }
       p.talents[node] = (p.talents[node] || 0) + 1;
       const n = V.webNode(p.cls, node);
       if (n.skill && !p.bar.includes(n.skill)) { const i = p.bar.indexOf(null); if (i >= 0) p.bar[i] = n.skill; } // new skills fill an empty slot
@@ -122,7 +145,7 @@
     S.respec = function (pid) {
       const p = S.players.get(pid);
       if (!p) return false;
-      if (!V.nearTrainer(p.cls, p.x, p.y, 40)) { emit({ e: 'nope', id: pid, why: 'trainer' }); return false; }
+      if (!nearTrainer(p.cls, p.x, p.y, 40)) { emit({ e: 'nope', id: pid, why: 'trainer' }); return false; }
       p.talents = {}; p.bar = V.cleanBar(p.cls, p.talents, p.bar); if (!p.bar.some(Boolean)) p.bar[0] = CLASSES[p.cls].skills[0];
       applyStats(p, false);
       emit({ e: 'talents', id: pid, tal: p.talents });
@@ -135,6 +158,20 @@
       const [tx, ty] = C.solidAt(x, y, 10) ? [x - 30, y - 10] : [x, y];
       p.x = tx; p.y = ty; correct(p);
     };
+    // T: return to the obelisk. 3 s standing still (moving or taking a hit breaks it), 60 s cooldown; admins go at once
+    V.RECALL = { time: 3, cd: 60 };
+    S.recall = function (pid) {
+      const p = S.players.get(pid);
+      if (!p || p.dead > 0 || p.recall) return false;
+      if (S.dun) { emit({ e: 'nope', id: pid, why: 'recalldun' }); return false; }
+      const home = () => { const sp = spawnPoint(); p.x = sp.x; p.y = sp.y; p.recall = null; correct(p); emit({ e: 'recalled', id: pid, x: r1(p.x), y: r1(p.y) }); };
+      if (p.admin) { home(); return true; }
+      if ((p.recallCd || 0) > S.t) { emit({ e: 'nope', id: pid, why: 'recallcd', s: Math.ceil(p.recallCd - S.t) }); return false; }
+      p.recall = { t: V.RECALL.time, x: p.x, y: p.y, home };
+      emit({ e: 'recall', id: pid, t: V.RECALL.time });
+      return true;
+    };
+    const breakRecall = (p) => { if (p.recall) { p.recall = null; emit({ e: 'recallx', id: p.id }); } };
     let spawned = 0;
     S.spawnFoes = (type, n, x, y, level) => {
       let made = 0;
@@ -153,7 +190,7 @@
     S.startTrial = function (pid) {
       const p = S.players.get(pid);
       if (!p || !CLASSES[p.cls].base || CLASSES[p.cls].base !== true || p.trial || p.level < V.EVOLVE.level) return false;
-      if (!V.nearTrainer(p.cls, p.x, p.y, 40)) { emit({ e: 'nope', id: pid, why: 'trainer' }); return false; }
+      if (!nearTrainer(p.cls, p.x, p.y, 40)) { emit({ e: 'nope', id: pid, why: 'trainer' }); return false; }
       p.trial = { n: 0, done: false };
       emit({ e: 'trial', id: pid, start: 1 });
       return true;
@@ -161,7 +198,7 @@
     S.evolve = function (pid, cls) {
       const p = S.players.get(pid), C = CLASSES[cls];
       if (!p || !C || C.base !== p.cls || !p.trial || !p.trial.done) return false;
-      if (!V.nearTrainer(p.cls, p.x, p.y, 40)) { emit({ e: 'nope', id: pid, why: 'trainer' }); return false; }
+      if (!nearTrainer(p.cls, p.x, p.y, 40)) { emit({ e: 'nope', id: pid, why: 'trainer' }); return false; }
       p.cls = cls; p.trial = null;
       p.talents = V.cleanTalents(cls, p.level, p.talents); // origin nodes carry over
       p.bar = V.cleanBar(cls, p.talents, p.bar);
@@ -183,7 +220,7 @@
     S.acceptBounty = function (pid, z) {
       const p = S.players.get(pid), info = ZONE_INFO[z];
       if (!p || !info || !info.bounties || p.dead > 0) return false;
-      if (!V.nearBoard(p.x, p.y, 40)) { emit({ e: 'nope', id: pid, why: 'board' }); return false; }
+      if (!nearBoard(p.x, p.y, 40)) { emit({ e: 'nope', id: pid, why: 'board' }); return false; }
       const b = p.bounties[z] || (p.bounties[z] = { i: 0, n: 0, st: 0 });
       if (b.st !== 0) return false;
       if (activeBounties(p) >= V.MAX_BOUNTIES) { emit({ e: 'nope', id: pid, why: 'bounties' }); return false; }
@@ -194,7 +231,7 @@
     S.turnIn = function (pid, z) {
       const p = S.players.get(pid), b = p && p.bounties[z];
       if (!b || b.st !== 2 || p.dead > 0) return false;
-      if (!V.nearBoard(p.x, p.y, 40)) { emit({ e: 'nope', id: pid, why: 'board' }); return false; }
+      if (!nearBoard(p.x, p.y, 40)) { emit({ e: 'nope', id: pid, why: 'board' }); return false; }
       const xp = V.bountyReward(z), name = V.bountyOf(z, b).name;
       b.i++; b.n = 0; b.st = 0;
       emit({ e: 'bounty', id: pid, z, done: name, xp });
@@ -274,7 +311,8 @@
       if (f.hp <= 0 && f.type !== 'dummy') killFoe(f, p);
     }
     function killFoe(f, killer) {
-      f.dead = true; f.respawn = f.isAdd ? Infinity : f.def.boss ? 90 : 15; f.deathMark = null; f.poison = null;
+      f.dead = true; f.respawn = f.isAdd || S.dun ? Infinity : f.def.boss ? 90 : 15; f.deathMark = null; f.poison = null;
+      if (S.dun && f === S.boss && !S.cleared) { S.cleared = true; emit({ e: 'dclear', zone: S.dun.zone, mode: S.dun.mode }); }
       emit({ e: 'kill', f: f.id, by: killer ? killer.id : -1 });
       if (f.adds) for (const a of f.adds) if (!a.dead) { a.dead = true; emit({ e: 'kill', f: a.id, by: -1 }); }
       const credited = new Set();
@@ -283,7 +321,7 @@
       f.hitBy.clear();
       if (killer) killer.kills++;
       for (const p of credited) {
-        grantXp(p, V.foeXp(f.level, f.elite, f.def.boss) * V.xpScale(p.level, f.level));
+        grantXp(p, V.foeXp(f.level, f.elite, f.def.boss) * V.xpScale(p.level, f.level) * (DM ? DM.xp : 1));
         bountyProgress(p, f);
         if (p.trial && !p.trial.done && f.level >= V.EVOLVE.minFoeLevel && !f.isAdd) {
           p.trial.n++;
@@ -309,11 +347,13 @@
     }
     function dropLoot(f) {
       if (f.type === 'dummy') return;
-      const boss = !!f.def.boss, n = boss ? 3 : f.elite ? (Math.random() < 0.4 ? 1 + (Math.random() < 0.3 ? 1 : 0) : 0) : (Math.random() < (f.isAdd ? 0.03 : 0.07) ? 1 : 0);
-      for (let i = 0; i < n; i++) lootAt(V.makeItem(f.level, boss ? Math.max(2, V.rollRarity(Math.random, 2)) : V.rollRarity(Math.random, f.elite ? 1 : 0)), f.x, f.y);
+      // dungeons: the harder the mode, the better the rolls (lb), and the boss drops one more item per mode
+      const lb = DM ? DM.loot : 0, odds = 1 + lb * 1.5;
+      const boss = !!f.def.boss, n = boss ? 3 + (S.dun ? S.dun.mode : 0) : f.elite ? (Math.random() < 0.4 ? 1 + (Math.random() < 0.3 ? 1 : 0) : 0) : (Math.random() < (f.isAdd ? 0.03 : 0.07) ? 1 : 0);
+      for (let i = 0; i < n; i++) lootAt(V.makeItem(f.level, boss ? Math.max(2, V.rollRarity(Math.random, 2 + lb)) : V.rollRarity(Math.random, (f.elite ? 1 : 0) + lb)), f.x, f.y);
       // exclusive boss drops, each rolled on its own; zone treasures from that zone's elites
-      if (boss) for (const [key, pct] of V.BOSS_LOOT[f.type] || []) if (Math.random() * 100 < pct) lootAt(V.makeUnique(key, f.level), f.x, f.y);
-      if (f.elite && !boss) for (const [z, key, pct] of V.ZONE_LOOT) if (z === f.zone && Math.random() * 100 < pct) lootAt(V.makeUnique(key, f.level), f.x, f.y);
+      if (boss) for (const [key, pct] of V.BOSS_LOOT[f.type] || []) if (Math.random() * 100 < pct * odds) lootAt(V.makeUnique(key, f.level), f.x, f.y);
+      if (f.elite && !boss) for (const [z, key, pct] of V.ZONE_LOOT) if (z === f.zone && Math.random() * 100 < pct * odds) lootAt(V.makeUnique(key, f.level), f.x, f.y);
     }
     const invEvent = (p) => emit({ e: 'inv', id: p.id, inv: p.bag, eq: p.eq });
     S.pick = function (pid, lid) {
@@ -404,13 +444,13 @@
       }
     }
     function hurtPlayer(p, dmg, src) {
-      if (p.dodgeT > 0 || p.inv > 0 || p.dead > 0 || V.inCamp(p.x, p.y)) return;
+      if (p.dodgeT > 0 || p.inv > 0 || p.dead > 0 || inCamp(p.x, p.y)) return;
       const Cl = CLASSES[p.cls];
       dmg *= (1 - Math.min(0.75, Cl.armor + p.mods.armor)) * (p.buffs.bulwark > 0 ? 0.5 : 1) * (p.buffs.barkskin > 0 ? 0.6 : 1);
       if (p.shield > 0) { const a = Math.min(p.shield, dmg); p.shield -= a; dmg -= a; if (p.shield <= 0) p.buffs.shield = 0; }
       dmg = R(dmg);
       if (dmg <= 0) { emit({ e: 'absorb', id: p.id }); return; }
-      p.hp -= dmg; p.lastHit = 0; p.lastCombat = S.t;
+      p.hp -= dmg; p.lastHit = 0; p.lastCombat = S.t; breakRecall(p);
       gainRes(p, 4);
       emit({ e: 'hurt', id: p.id, d: dmg });
       const thorns = p.mods.thorns + (p.buffs.barkskin > 0 ? 10 : 0);
@@ -419,12 +459,22 @@
         if (p.mods.flags.has('lastStand') && S.t - p.lastStandT > 60) { p.hp = 1; p.inv = 2; p.lastStandT = S.t; emit({ e: 'laststand', id: p.id }); return; }
         p.hp = 0; p.dead = 5; p.atk = null; p.channel = null; p.buffs = {}; p.shield = 0;
         emit({ e: 'die', id: p.id });
+        if (S.dun) dunDeath(p);
       }
     }
     function hurtTarget(t, dmg, src) {
       if (t.kind === 'player') return hurtPlayer(t.ref, dmg, src);
       t.ref.hp -= dmg;
       emit({ e: 'mhurt', m: t.ref.id, d: R(dmg) });
+    }
+    // three lives each: 5 s to rise with a team, at once alone; out of lives you watch. Everyone down at once ends the run.
+    function dunDeath(p) {
+      const left = Math.max(0, (S.lives.get(p.id) ?? V.DUN_LIVES) - 1);
+      S.lives.set(p.id, left);
+      if (left <= 0) { p.dead = Infinity; p.spect = true; } else p.dead = S.players.size <= 1 ? 0.4 : 5;
+      emit({ e: 'dlife', id: p.id, n: left });
+      const all = [...S.players.values()].every((q) => q.dead > 0);
+      if (all && !S.wiped && (S.players.size > 1 || p.spect)) { S.wiped = true; emit({ e: 'dwipe' }); }
     }
     function respawn(p) {
       const sp = spawnPoint();
@@ -816,8 +866,13 @@
       if (!p.buffs.shield) p.shield = 0;
       p.cdDodge = Math.max(0, p.cdDodge - dt);
       p.dodgeT -= dt; p.inv -= dt; p.crit -= dt; p.lastHit += dt;
-      if (p.dead > 0) { p.dead -= dt; p.skillReq = 0; if (p.dead <= 0) respawn(p); return; }
+      if (p.dead > 0) { p.dead -= dt; p.skillReq = 0; breakRecall(p); if (p.dead <= 0) respawn(p); return; }
+      if (p.recall) {
+        if (Math.hypot(p.x - p.recall.x, p.y - p.recall.y) > 6 || p.atk) breakRecall(p);
+        else if ((p.recall.t -= dt) <= 0) { p.recallCd = S.t + V.RECALL.cd; p.recall.home(); }
+      }
       p.zone = zoneAt(p.x, p.y);
+      if (!S.dun) { const g = V.nearGate(p.x, p.y, 40); if (g && !p.found.includes(g)) { p.found.push(g); emit({ e: 'found', id: p.id, z: g }); } } // stumbled on a dungeon
       const rs = res(p);
       if (rs.regen) p.res = Math.min(p.resMax, p.res + rs.regen * (1 + p.mods.resGen) * (p.cls === 'lightborn' ? 2 : p.cls === 'mage' ? 1.5 : 1) * dt);
       else if (S.t - p.lastCombat > 5) p.res = Math.max(0, p.res - 5 * dt);
@@ -948,13 +1003,13 @@
     }
 
     // ---------- foes ----------
-    const alive = (t) => t && (t.kind === 'player' ? S.players.get(t.id) === t.ref && t.ref.dead <= 0 && !(t.ref.buffs.invis > 0) && !V.inCamp(t.ref.x, t.ref.y) : t.ref.hp > 0 && t.ref.life > 0 && !t.ref.gone);
+    const alive = (t) => t && (t.kind === 'player' ? S.players.get(t.id) === t.ref && t.ref.dead <= 0 && !(t.ref.buffs.invis > 0) && !inCamp(t.ref.x, t.ref.y) : t.ref.hp > 0 && t.ref.life > 0 && !t.ref.gone);
     function pickTarget(f) {
       let best = null, bd = f.def.aggro;
       for (const p of S.players.values()) {
         if (p.dead > 0 || p.buffs.invis > 0) continue;
         const d = gdist(f.x, f.y, p.x, p.y);
-        if (d < bd && V.inCamp(p.x, p.y)) continue; if (d < bd) { bd = d; best = { kind: 'player', ref: p, id: p.id }; }
+        if (d < bd && inCamp(p.x, p.y)) continue; if (d < bd) { bd = d; best = { kind: 'player', ref: p, id: p.id }; }
       }
       for (const m of S.minions) {
         if (m.hp <= 0 || m.life <= 0 || m.rise > 0) continue;
@@ -1199,13 +1254,14 @@
     const shotRow = (s) => [s.id, R(s.x), R(s.y), s.h, R(s.vx), R(s.vy), s.color, s.size, s.trail, s.kind];
     const minionRow = (m) => [m.id, m.owner, R(m.x), R(m.y), m.face, R(Math.max(0, m.rise) * 100), m.atkT > 0 ? 1 : 0, m.life < 3 ? 1 : 0, m.moving ? 1 : 0, m.kind];
     const fieldRow = (F) => [F.id, V.FIELD_KINDS.indexOf(F.kind), R(F.x), R(F.y), F.r, R(F.t * 100), R(F.life * 100), F.seed];
-    function meBlock(p) {
+    function meBlock(p, eye) {
       const b = ZONE_INFO.map((info, z) => { const e = p.bounties[z]; return info.bounties ? (e ? [e.i, e.n, e.st] : [0, 0, 0]) : 0; });
       return {
         lv: p.level, xp: R(p.xp), nx: V.xpNext(p.level), res: R(p.res), rm: p.resMax,
         bar: p.bar, cd: p.bar.map((sk) => sk ? R((p.cds[sk] || 0) * 10) : 0), dcd: R(p.cdDodge * 100),
         spd: Math.round(speedOf(p) * 10) / 10, sh: R(p.shield), k: p.kills, tp: V.pointsLeft(p.cls, p.level, p.talents),
-        bf: Object.entries(p.buffs).filter(([k]) => k !== 'ambush').map(([k, v]) => [k, R(v * 10)]), bb: b, tr: p.trial ? [p.trial.n, p.trial.done ? 1 : 0] : 0, dead: R(Math.max(0, p.dead) * 10),
+        bf: Object.entries(p.buffs).filter(([k]) => k !== 'ambush').map(([k, v]) => [k, R(v * 10)]), bb: b, tr: p.trial ? [p.trial.n, p.trial.done ? 1 : 0] : 0, dead: R(Math.min(999, Math.max(0, p.dead)) * 10),
+        dl: S.dun ? S.lives.get(p.id) ?? V.DUN_LIVES : -1, fd: p.found, rc: R(Math.max(0, (p.recallCd || 0) - S.t)), sp: eye && eye !== p ? eye.id : 0, dc: S.cleared ? 1 : 0,
       };
     }
 
@@ -1232,11 +1288,13 @@
       if (e.id !== undefined) { const p = S.players.get(e.id); return p ? [p.x, p.y] : null; }
       return null;
     }
-    const PRIVATE = new Set(['xp', 'bounty', 'nope', 'talents', 'trial', 'inv']); // casts are public so nearby players hear them
+    const PRIVATE = new Set(['xp', 'bounty', 'nope', 'talents', 'trial', 'inv', 'found']); // casts are public so nearby players hear them
     S.view = function (pid, cache, events) {
       const me = S.players.get(pid);
       if (!me) return null;
-      const near = (x, y, pad = 0) => Math.abs(x - me.x) < VIEW_X + pad && Math.abs(y - me.y) < VIEW_Y + pad;
+      let eye = me; // out of lives: see through a teammate's eyes
+      if (me.spect) for (const q of S.players.values()) if (q.dead <= 0) { eye = q; break; }
+      const near = (x, y, pad = 0) => Math.abs(x - eye.x) < VIEW_X + pad && Math.abs(y - eye.y) < VIEW_Y + pad;
       const f = [];
       for (const foe of S.foes) {
         const row = foe.dead ? [foe.id, 0] : near(foe.x, foe.y) ? foeRow(foe) : [foe.id, 2];
@@ -1250,12 +1308,12 @@
         s: S.shots.filter((s) => near(s.x, s.y)).map(shotRow),
         m: S.minions.filter((m) => near(m.x, m.y)).map(minionRow),
         d: S.fields.filter((F) => near(F.x, F.y, F.r)).map(fieldRow),
-        me: meBlock(me),
+        me: meBlock(me, eye),
         l: S.loot.filter((L) => near(L.x, L.y)).map((L) => [L.id, R(L.x), R(L.y), L.it.r, L.it.s, L.it.n, L.it.lv]),
         e: events.filter((e) => {
           if (e.id === pid) return true;
           if (PRIVATE.has(e.e)) return false;
-          if (e.e === 'join' || e.e === 'leave' || e.e === 'levelup' || e.e === 'foeadd' || e.e === 'evolve' || e.e === 'nuke') return true;
+          if (e.e === 'join' || e.e === 'leave' || e.e === 'levelup' || e.e === 'foeadd' || e.e === 'evolve' || e.e === 'nuke' || e.e === 'dlife' || e.e === 'dclear' || e.e === 'dwipe') return true;
           const pos = eventPos(e);
           return !pos || near(pos[0], pos[1], 120) || (e.x0 !== undefined && near(e.x0, e.y0, 120));
         }),

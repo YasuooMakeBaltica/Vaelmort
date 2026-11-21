@@ -21,7 +21,11 @@ const NAME_RE = /^[A-Za-z0-9_]{3,16}$/;
 
 const meta = JSON.parse(fs.readFileSync(path.join(ROOT, 'assets/heroes/heroes.json'), 'utf8'));
 const map = V.generate(V.SEED);
-const sim = V.createSim(map, meta, { validate: true });
+const world = V.createSim(map, meta, { validate: true }); world.pending = [];
+const instances = new Map(); // dungeon instances: id -> { id, zone, mode, sim, party, endT }
+let nextInst = 1;
+const sims = () => [world, ...[...instances.values()].map((d) => d.sim)];
+const online = () => sims().reduce((n, s) => n + s.players.size, 0);
 const store = createStore();
 
 // ---------- static files ----------
@@ -34,7 +38,7 @@ const indexHtml = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8')
   .replace(/<meta name="vaelmort-server" content="[^"]*">/, '<meta name="vaelmort-server" content="same-origin">');
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
-  if (url.pathname === '/healthz') { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('ok ' + sim.players.size); return; }
+  if (url.pathname === '/healthz') { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('ok ' + online()); return; }
   let rel = decodeURIComponent(url.pathname).replace(/^\/+/, '') || 'index.html';
   if (!PUBLIC.some((re) => re.test(rel))) { res.writeHead(404, { 'content-type': 'text/plain' }); res.end('Not found'); return; }
   try {
@@ -122,12 +126,12 @@ async function play(ws, c, charId) {
   if (c.pid) return;
   const ch = (c.chars || []).find((x) => x.id === charId);
   if (!ch) { send(ws, { t: 'error', msg: 'That character no longer exists.' }); return; }
-  if (sim.players.size >= MAX_PLAYERS) { send(ws, { t: 'error', msg: 'The realm is full right now. Try again soon.' }); return; }
-  c.char = ch; c.pid = nextPid++; c.foeCache = new Map();
-  const p = sim.addPlayer(c.pid, Object.assign({}, ch, { admin: !!c.acct.admin }));
-  send(ws, { t: 'welcome', id: c.pid, name: p.name, cls: p.cls, level: p.level, talents: p.talents, refunded: p.refunded ? 1 : 0, inv: p.bag, eq: p.eq, x: p.x, y: p.y, seq: p.seq, foes: sim.foeList() });
+  if (online() >= MAX_PLAYERS) { send(ws, { t: 'error', msg: 'The realm is full right now. Try again soon.' }); return; }
+  c.char = ch; c.pid = nextPid++; c.foeCache = new Map(); c.sim = world;
+  const p = world.addPlayer(c.pid, Object.assign({}, ch, { admin: !!c.acct.admin }));
+  send(ws, { t: 'welcome', id: c.pid, name: p.name, cls: p.cls, level: p.level, talents: p.talents, refunded: p.refunded ? 1 : 0, inv: p.bag, eq: p.eq, x: p.x, y: p.y, seq: p.seq, foes: world.foeList() });
   if (p.refunded) saveChar(c); // the skill-web refund happens once
-  console.log(`+ ${p.name} (${c.acct.name}, ${sim.players.size} online)`);
+  console.log(`+ ${p.name} (${c.acct.name}, ${online()} online)`);
 }
 
 // ---------- admin ----------
@@ -135,7 +139,7 @@ const reply = (ws, op, extra) => send(ws, Object.assign({ t: 'admin', op }, extr
 function clientByPid(pid) { for (const [w, c] of clients) if (c.pid === pid) return [w, c]; return [null, null]; }
 async function adminList(ws) {
   const players = [];
-  for (const [, c] of clients) if (c.pid) { const p = sim.players.get(c.pid); if (p) players.push({ pid: c.pid, name: p.name, cls: p.cls, level: p.level, acct: c.acct.name, zone: V.ZONE_INFO[Math.max(0, p.zone)].name }); }
+  for (const [, c] of clients) if (c.pid) { const p = c.sim.players.get(c.pid); if (p) players.push({ pid: c.pid, name: p.name, cls: p.cls, level: p.level, acct: c.acct.name, zone: c.sim.dun ? V.DUNGEONS[c.sim.dun.zone].name + ' (' + V.DUN_MODES[c.sim.dun.mode].name + ')' : V.ZONE_INFO[Math.max(0, p.zone)].name }); }
   reply(ws, 'list', { players, admins: await store.flagged('admin'), banned: await store.flagged('banned'), foes: Object.keys(V.FOES).filter((k) => k !== 'dummy') });
 }
 async function adminOp(ws, c, m) {
@@ -143,7 +147,7 @@ async function adminOp(ws, c, m) {
   if (!a || !a.admin) { reply(ws, 'error', { msg: 'You are not an admin.' }); return; }
   const say = (msg) => reply(ws, 'ok', { msg });
   const [tw, tc] = Number.isInteger(m.pid) ? clientByPid(m.pid) : [null, null];
-  const target = tc && sim.players.get(tc.pid);
+  const target = tc && tc.sim.players.get(tc.pid);
   switch (m.op) {
     case 'list': return adminList(ws);
     case 'kick':
@@ -161,20 +165,21 @@ async function adminOp(ws, c, m) {
     case 'xp': {
       const n = Math.max(1, Math.min(10000000, m.n | 0));
       if (!target) return say('That player is not online.');
-      sim.giveXp(tc.pid, n); saveChar(tc);
+      tc.sim.giveXp(tc.pid, n); saveChar(tc);
       return say(`Gave ${target.name} ${n.toLocaleString()} XP.`);
     }
     case 'tp': {
       if (!c.pid) return say('Enter the world to teleport.');
       if (!target) return say('That player is not online.');
-      sim.teleport(c.pid, target.x + 30, target.y + 10);
+      if (tc.sim !== c.sim) return say(`${target.name} is in ${tc.sim.dun ? 'a dungeon' : 'the overworld'}; you can only teleport to players in the same world.`);
+      c.sim.teleport(c.pid, target.x + 30, target.y + 10);
       return say(`Teleported to ${target.name}.`);
     }
     case 'spawn': {
       if (!V.FOES[m.type] || m.type === 'dummy') return say('Unknown enemy.');
-      const at = c.pid ? sim.players.get(c.pid) : target;
+      const at = c.pid ? c.sim.players.get(c.pid) : target, ss = c.pid ? c.sim : tc && tc.sim;
       if (!at) return say('Enter the world, or pick a player to spawn next to.');
-      const n = sim.spawnFoes(m.type, Math.max(1, Math.min(20, m.n | 0 || 1)), at.x, at.y, Math.max(1, Math.min(V.MAX_LEVEL + 5, m.level | 0 || at.level)));
+      const n = ss.spawnFoes(m.type, Math.max(1, Math.min(20, m.n | 0 || 1)), at.x, at.y, Math.max(1, Math.min(V.MAX_LEVEL + 5, m.level | 0 || at.level)));
       return say(n ? `Spawned ${n} ${V.FOES[m.type].name}.` : 'Too many spawned enemies already.');
     }
     case 'give': {
@@ -188,7 +193,7 @@ async function adminOp(ws, c, m) {
         for (const [k, v] of Object.entries(m.custom.stats || {})) if (V.AFFIX[k] && Number.isFinite(+v) && +v > 0) stats[k] = k === 'thorns' ? Math.min(5000, +v) : Math.min(500, +v) / 100;
         custom = { name: typeof m.custom.name === 'string' ? clean(m.custom.name).slice(0, 40) : '', stats };
       }
-      const it = sim.giveItem(pid, slot, rarity, level, base, custom);
+      const it = tc2.sim.giveItem(pid, slot, rarity, level, base, custom);
       if (!it) return say('That player is not online.');
       if (it === 'full') return say('Their bags are full.');
       saveChar(tc2); console.log(`admin ${a.name} gave ${it.n} (${V.RARITY[it.r].name}, lv ${it.lv}) to ${tc2.char.name}`);
@@ -212,8 +217,143 @@ async function adminOp(ws, c, m) {
   }
 }
 
+// ---------- parties (up to V.PARTY_MAX, across worlds) ----------
+const parties = new Map(); // id -> { id, leader, members: [pid], inst }
+let nextParty = 1;
+const cOf = (pid) => clientByPid(pid)[1];
+function partyView(P) {
+  return { t: 'party', id: P.id, leader: P.leader, inst: P.inst && instances.has(P.inst) ? instances.get(P.inst).zone : 0, members: P.members.map((pid) => {
+    const mc = cOf(pid), p = mc && mc.sim && mc.sim.players.get(pid);
+    if (!p) return { pid, name: '?', cls: 'knight', level: 1, hp: 0, maxHp: 1, dead: 1, where: '' };
+    const dun = mc.sim.dun;
+    return { pid, name: p.name, cls: p.cls, level: p.level, hp: Math.ceil(p.hp), maxHp: p.maxHp, dead: p.dead > 0 ? 1 : 0, where: dun ? V.DUNGEONS[dun.zone].name : V.ZONE_INFO[Math.max(0, p.zone)].name, dun: dun ? 1 : 0, lives: dun ? mc.sim.lives.get(pid) ?? V.DUN_LIVES : -1 };
+  }) };
+}
+function sendParty(P) { const v = JSON.stringify(partyView(P)); for (const pid of P.members) { const [w] = clientByPid(pid); if (w) send(w, v); } }
+const sysTo = (ws, text) => send(ws, { t: 'chat', sys: 1, text });
+function partyInvite(ws, c, m) {
+  let tw, tc;
+  if (Number.isInteger(m.pid)) [tw, tc] = clientByPid(m.pid);
+  else if (typeof m.name === 'string') { const nm = m.name.trim().toLowerCase(); for (const [w, oc] of clients) if (oc.pid && oc.char && oc.char.name.toLowerCase() === nm) { tw = w; tc = oc; } }
+  if (!tc || !tc.pid) return sysTo(ws, 'That player is not online.');
+  if (tc === c) return sysTo(ws, 'You cannot invite yourself.');
+  let P = parties.get(c.party);
+  if (P && P.leader !== c.pid) return sysTo(ws, 'Only the party leader can invite.');
+  if (P && P.members.length >= V.PARTY_MAX) return sysTo(ws, `A party holds at most ${V.PARTY_MAX}.`);
+  if (tc.party) return sysTo(ws, `${tc.char.name} is already in a party.`);
+  tc.invites.set(c.pid, Date.now() + 60000);
+  send(tw, { t: 'pinvite', from: c.pid, name: c.char.name });
+  sysTo(ws, `Invited ${tc.char.name} to your party.`);
+}
+function partyAccept(ws, c, from) {
+  const exp = c.invites.get(from); c.invites.delete(from);
+  const fc = cOf(from);
+  if (!exp || exp < Date.now() || !fc || !fc.pid) return sysTo(ws, 'That invite has expired.');
+  if (c.party) return sysTo(ws, 'Leave your party first.');
+  let P = parties.get(fc.party);
+  if (P && P.leader !== from) return sysTo(ws, 'That invite has expired.');
+  if (!P) { P = { id: nextParty++, leader: from, members: [from], inst: 0 }; parties.set(P.id, P); fc.party = P.id; }
+  if (P.members.length >= V.PARTY_MAX) return sysTo(ws, 'That party is full.');
+  P.members.push(c.pid); c.party = P.id; c.invites.clear();
+  for (const pid of P.members) { const [w] = clientByPid(pid); if (w) sysTo(w, pid === c.pid ? `You joined ${fc.char.name}'s party.` : `${c.char.name} joined the party.`); }
+  sendParty(P);
+}
+function leaveParty(c, quiet) {
+  const P = parties.get(c.party);
+  c.party = 0;
+  if (!P) return;
+  P.members = P.members.filter((pid) => pid !== c.pid);
+  const [w] = clientByPid(c.pid); if (w && !quiet) { send(w, { t: 'party', id: 0 }); sysTo(w, 'You left the party.'); }
+  if (c.sim && c.sim.dun && !quiet) leaveDungeon(c); // the dungeon belongs to the party
+  if (P.members.length <= 1) { // a party of one is no party
+    for (const pid of P.members) { const oc = cOf(pid); if (oc) { oc.party = 0; const [ow] = clientByPid(pid); if (ow) { send(ow, { t: 'party', id: 0 }); sysTo(ow, 'Your party has disbanded.'); } } }
+    parties.delete(P.id); return;
+  }
+  if (P.leader === c.pid) P.leader = P.members[0];
+  for (const pid of P.members) { const [ow] = clientByPid(pid); if (ow) sysTo(ow, `${c.char ? c.char.name : 'Someone'} left the party.${P.leader !== c.pid && pid === P.leader ? ' You lead it now.' : ''}`); }
+  sendParty(P);
+}
+function partyKick(c, pid) {
+  const P = parties.get(c.party);
+  if (!P || P.leader !== c.pid || pid === c.pid || !P.members.includes(pid)) return;
+  const tc = cOf(pid); if (!tc) return;
+  const [tw] = clientByPid(pid); if (tw) sysTo(tw, 'You were removed from the party.');
+  leaveParty(tc);
+}
+function partyPromote(c, pid) {
+  const P = parties.get(c.party);
+  if (!P || P.leader !== c.pid || !P.members.includes(pid)) return;
+  P.leader = pid; sendParty(P);
+}
+
+// ---------- dungeons: a private copy for each party ----------
+function moveTo(c, dest, at) {
+  const [ws] = clientByPid(c.pid);
+  Object.assign(c.char, c.sim.charData(c.pid));
+  c.sim.removePlayer(c.pid, true);
+  const p = dest.addPlayer(c.pid, Object.assign({}, c.char, { admin: !!c.acct.admin }), true);
+  if (at) { p.x = at[0]; p.y = at[1]; }
+  c.sim = dest; c.foeCache = new Map();
+  if (ws) send(ws, { t: 'map', dun: dest.dun ? { zone: dest.dun.zone, mode: dest.dun.mode } : null, x: p.x, y: p.y, seq: p.seq, foes: dest.foeList() });
+}
+function closeInstance(d) {
+  instances.delete(d.id);
+  const P = parties.get(d.party); if (P && P.inst === d.id) { P.inst = 0; sendParty(P); }
+}
+function enterDungeon(ws, c, zone, mode) {
+  const D = V.DUNGEONS[zone], p = c.sim.players.get(c.pid);
+  if (!D || !V.DUN_MODES[mode] || !p) return;
+  if (c.sim !== world) return sysTo(ws, 'You are already in a dungeon.');
+  if (p.dead > 0) return;
+  if (V.nearGate(p.x, p.y, 60) !== zone) return sysTo(ws, `Walk up to the ${D.gate === 'portal' ? 'portal' : 'gate'} first.`);
+  const P = parties.get(c.party);
+  let d = P && P.inst && instances.get(P.inst);
+  if (d && !d.endT) { // the party is already inside: join them
+    if (d.zone !== zone) return sysTo(ws, `Your party is in ${V.DUNGEONS[d.zone].name}.`);
+    if ((d.sim.lives.get(c.pid) ?? 1) <= 0) return sysTo(ws, 'You have no lives left in this run.');
+    moveTo(c, d.sim); sendParty(P); return;
+  }
+  if (P && P.leader !== c.pid) return sysTo(ws, 'Only the party leader can open a dungeon.');
+  const size = P ? P.members.length : 1;
+  const sim = V.createSim(V.generateDungeon(zone), meta, { validate: true, dun: { zone, mode, size } }); sim.pending = [];
+  d = { id: nextInst++, zone, mode, sim, party: P ? P.id : 0, endT: 0, started: Date.now() };
+  instances.set(d.id, d);
+  console.log(`${c.char.name} opened ${D.name} (${V.DUN_MODES[mode].name}, party of ${size})`);
+  moveTo(c, sim);
+  if (P) { // the rest of the party is pulled in with the leader
+    P.inst = d.id;
+    for (const pid of P.members) if (pid !== c.pid) {
+      const mc = cOf(pid); if (!mc || mc.sim !== world) continue;
+      const mp = world.players.get(pid); if (mp && mp.dead > 0) continue;
+      moveTo(mc, sim); const [mw] = clientByPid(pid); if (mw) sysTo(mw, `${c.char.name} led the party into ${D.name}.`);
+    }
+    sendParty(P);
+  }
+}
+function leaveDungeon(c) {
+  if (!c.pid || !c.sim || !c.sim.dun) return;
+  const s = c.sim, zone = s.dun.zone, [gx, gy] = V.gatePos(zone);
+  moveTo(c, world, [gx + (Math.random() - 0.5) * 60, gy + 46]);
+  saveChar(c);
+  for (const d of instances.values()) if (d.sim === s && !s.players.size) closeInstance(d);
+  const P = parties.get(c.party); if (P) sendParty(P);
+}
+function dungeonTick(now) {
+  for (const d of [...instances.values()]) {
+    const s = d.sim;
+    if (s.wiped && !d.endT) {
+      d.endT = now + 4500;
+      for (const pid of s.players.keys()) { const [w] = clientByPid(pid); if (w) sysTo(w, `Your party has fallen. ${V.DUNGEONS[d.zone].name} casts you out.`); }
+    }
+    if (d.endT && now > d.endT) {
+      for (const pid of [...s.players.keys()]) { const mc = cOf(pid); if (mc) leaveDungeon(mc); }
+      closeInstance(d);
+    } else if (!s.players.size && now - d.started > 5000) closeInstance(d);
+  }
+}
+
 async function saveChar(c) {
-  const d = c.pid && sim.charData(c.pid);
+  const d = c.pid && c.sim && c.sim.charData(c.pid);
   if (!d || !c.char) return;
   Object.assign(c.char, d);
   try { await store.saveChar(c.char.id, d); } catch (e) { console.error('save failed', c.char.name, e.message); }
@@ -221,13 +361,15 @@ async function saveChar(c) {
 async function leaveWorld(c) {
   if (!c.pid) return;
   await saveChar(c);
-  sim.removePlayer(c.pid);
-  console.log(`- ${c.char.name} (${sim.players.size} online)`);
+  leaveParty(c, true);
+  const s = c.sim; s.removePlayer(c.pid); c.sim = null;
+  for (const d of instances.values()) if (d.sim === s && !s.players.size) closeInstance(d);
+  console.log(`- ${c.char.name} (${online()} online)`);
   c.pid = 0; c.char = null;
 }
 
 wss.on('connection', (ws) => {
-  const c = { acct: null, pid: 0, char: null, chars: null, chatT: 0, authTries: 0, msgs: 0, foeCache: new Map() };
+  const c = { acct: null, pid: 0, char: null, chars: null, chatT: 0, authTries: 0, msgs: 0, foeCache: new Map(), sim: null, party: 0, invites: new Map() };
   clients.set(ws, c);
   ws.on('message', async (raw) => {
     if (++c.msgs > 80) return; // flood guard, reset every second
@@ -244,28 +386,43 @@ wss.on('connection', (ws) => {
         else if (m.t === 'play' && Number.isInteger(m.id)) await play(ws, c, m.id);
         return;
       }
-      if (m.t === 'in') sim.input(c.pid, m);
-      else if (m.t === 'learn' && typeof m.node === 'string') { if (sim.learn(c.pid, m.node)) saveChar(c); }
-      else if (m.t === 'bar' && Array.isArray(m.bar)) { if (sim.setBar(c.pid, m.bar.slice(0, V.BAR_SIZE).map((x) => (typeof x === 'string' ? x.slice(0, 24) : null)))) saveChar(c); }
-      else if (m.t === 'respec') { if (sim.respec(c.pid)) saveChar(c); }
-      else if (m.t === 'pick' && Number.isInteger(m.id)) { if (sim.pick(c.pid, m.id)) saveChar(c); }
-      else if (m.t === 'equip' && Number.isInteger(m.i)) { if (sim.equip(c.pid, m.i)) saveChar(c); }
-      else if (m.t === 'unequip' && V.SLOTS.includes(m.slot)) { if (sim.unequip(c.pid, m.slot)) saveChar(c); }
-      else if (m.t === 'discard' && Number.isInteger(m.i)) { if (sim.discard(c.pid, m.i)) saveChar(c); }
-      else if (m.t === 'trash' && (Number.isInteger(m.i) || V.SLOTS.includes(m.slot))) { if (sim.trash(c.pid, m.i, V.SLOTS.includes(m.slot) ? m.slot : null)) saveChar(c); }
-      else if (m.t === 'nuke') { if (sim.nuke(c.pid)) console.log(`${c.char.name} nuked the map`); }
-      else if (m.t === 'trial') { if (sim.startTrial(c.pid)) saveChar(c); }
-      else if (m.t === 'evolve' && typeof m.cls === 'string') { if (sim.evolve(c.pid, m.cls)) { saveChar(c); console.log(`${c.char.name} evolved into ${m.cls}`); } }
-      else if (m.t === 'accept' && Number.isInteger(m.z)) { if (sim.acceptBounty(c.pid, m.z)) saveChar(c); }
-      else if (m.t === 'turnin' && Number.isInteger(m.z)) { if (sim.turnIn(c.pid, m.z)) saveChar(c); }
-      else if (m.t === 'abandon' && Number.isInteger(m.z)) { if (sim.abandonBounty(c.pid, m.z)) saveChar(c); }
+      if (m.t === 'in') c.sim.input(c.pid, m);
+      else if (m.t === 'learn' && typeof m.node === 'string') { if (c.sim.learn(c.pid, m.node)) saveChar(c); }
+      else if (m.t === 'bar' && Array.isArray(m.bar)) { if (c.sim.setBar(c.pid, m.bar.slice(0, V.BAR_SIZE).map((x) => (typeof x === 'string' ? x.slice(0, 24) : null)))) saveChar(c); }
+      else if (m.t === 'respec') { if (c.sim.respec(c.pid)) saveChar(c); }
+      else if (m.t === 'pick' && Number.isInteger(m.id)) { if (c.sim.pick(c.pid, m.id)) saveChar(c); }
+      else if (m.t === 'equip' && Number.isInteger(m.i)) { if (c.sim.equip(c.pid, m.i)) saveChar(c); }
+      else if (m.t === 'unequip' && V.SLOTS.includes(m.slot)) { if (c.sim.unequip(c.pid, m.slot)) saveChar(c); }
+      else if (m.t === 'discard' && Number.isInteger(m.i)) { if (c.sim.discard(c.pid, m.i)) saveChar(c); }
+      else if (m.t === 'trash' && (Number.isInteger(m.i) || V.SLOTS.includes(m.slot))) { if (c.sim.trash(c.pid, m.i, V.SLOTS.includes(m.slot) ? m.slot : null)) saveChar(c); }
+      else if (m.t === 'recall') c.sim.recall(c.pid);
+      else if (m.t === 'nuke') { if (c.sim.nuke(c.pid)) console.log(`${c.char.name} nuked the map`); }
+      else if (m.t === 'trial') { if (c.sim.startTrial(c.pid)) saveChar(c); }
+      else if (m.t === 'evolve' && typeof m.cls === 'string') { if (c.sim.evolve(c.pid, m.cls)) { saveChar(c); console.log(`${c.char.name} evolved into ${m.cls}`); } }
+      else if (m.t === 'accept' && Number.isInteger(m.z)) { if (c.sim.acceptBounty(c.pid, m.z)) saveChar(c); }
+      else if (m.t === 'turnin' && Number.isInteger(m.z)) { if (c.sim.turnIn(c.pid, m.z)) saveChar(c); }
+      else if (m.t === 'abandon' && Number.isInteger(m.z)) { if (c.sim.abandonBounty(c.pid, m.z)) saveChar(c); }
       else if (m.t === 'leave') { await leaveWorld(c); await sendChars(ws, c); }
+      else if (m.t === 'pinvite') partyInvite(ws, c, m);
+      else if (m.t === 'paccept' && Number.isInteger(m.from)) partyAccept(ws, c, m.from);
+      else if (m.t === 'pdecline' && Number.isInteger(m.from)) { c.invites.delete(m.from); const [fw] = clientByPid(m.from); if (fw) send(fw, { t: 'chat', sys: 1, text: `${c.char.name} declined your party invite.` }); }
+      else if (m.t === 'pleave') leaveParty(c);
+      else if (m.t === 'pkick' && Number.isInteger(m.pid)) partyKick(c, m.pid);
+      else if (m.t === 'ppromote' && Number.isInteger(m.pid)) partyPromote(c, m.pid);
+      else if (m.t === 'dungeon' && Number.isInteger(m.zone) && Number.isInteger(m.mode)) enterDungeon(ws, c, m.zone, m.mode);
+      else if (m.t === 'dleave') leaveDungeon(c);
       else if (m.t === 'chat') {
         const now = Date.now();
         if (now - c.chatT < 800) return;
         const text = clean(m.text || '').slice(0, 160);
         if (!text) return;
         c.chatT = now;
+        if (/^\/p(arty)?\s/i.test(text)) { // party chat
+          const P = parties.get(c.party), msg = text.replace(/^\/p(arty)?\s+/i, '');
+          if (!P) { send(ws, { t: 'chat', sys: 1, text: 'You are not in a party.' }); return; }
+          if (msg) for (const pid of P.members) { const [w] = clientByPid(pid); if (w) send(w, { t: 'chat', name: c.char.name, text: msg, party: 1 }); }
+          return;
+        }
         broadcast({ t: 'chat', name: c.char.name, text });
       }
     } catch (e) {
@@ -282,24 +439,28 @@ wss.on('connection', (ws) => {
 setInterval(() => { for (const c of clients.values()) c.msgs = 0; }, 1000);
 setInterval(() => { for (const c of clients.values()) saveChar(c); }, 30000);
 // The world runs at 20 ticks a second; each player gets a view of what is near them every SEND_EVERY ticks.
-let last = Date.now(), tick = 0, pending = [];
+let last = Date.now(), tick = 0;
 // a bug must never take the whole realm down: log it and keep the world running
 process.on('uncaughtException', (e) => console.error('uncaught', e));
 process.on('unhandledRejection', (e) => console.error('unhandled rejection', e));
 setInterval(() => {
   const now = Date.now(), dt = Math.min(0.1, (now - last) / 1000); last = now;
-  try { sim.step(dt); } catch (e) { console.error('tick failed', e); }
-  pending.push(...sim.drainEvents());
+  for (const s of sims()) {
+    try { s.step(dt); } catch (e) { console.error('tick failed', e); }
+    s.pending.push(...s.drainEvents());
+  }
+  try { dungeonTick(now); } catch (e) { console.error('dungeon tick failed', e); }
   if (++tick % SEND_EVERY) return;
-  const events = pending; pending = [];
-  const n = sim.players.size;
+  const n = online();
   for (const [ws, c] of clients) {
-    if (!c.pid) continue;
-    const v = sim.view(c.pid, c.foeCache, events);
+    if (!c.pid || !c.sim) continue;
+    const v = c.sim.view(c.pid, c.foeCache, c.sim.pending);
     if (!v) continue;
     v.t = 's'; v.n = n;
     send(ws, v);
   }
+  for (const s of sims()) s.pending = [];
+  if (tick % 20 === 0) for (const P of parties.values()) sendParty(P);
 }, TICK * 1000);
 
 store.init().then(() => {

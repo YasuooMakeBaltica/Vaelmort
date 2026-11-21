@@ -170,13 +170,14 @@
   V.boardPos = () => V.toWorld(V.C + V.BOARD_AT[0], V.C + V.BOARD_AT[1]);
   let campPts = null;
   V.inCamp = (x, y) => {
+    if (V.inDun) return false; // (set by the client while it shows a dungeon; the server's sims check their own)
     campPts = campPts || Object.keys(V.TRAINERS).map(V.trainerPos);
     for (const [tx, ty] of campPts) if (V.gdist(x, y, tx, ty) < V.CAMP_R) return true;
     return false;
   };
   // classes without a trainer (Lightborn) learn anywhere, straight from the skill web
-  V.nearTrainer = (cls, x, y, pad = 0) => { if (!V.TRAINERS[cls]) return true; const [tx, ty] = V.trainerPos(cls); return V.gdist(x, y, tx, ty) < V.INTERACT + pad; };
-  V.nearBoard = (x, y, pad = 0) => { const [bx, by] = V.boardPos(); return V.gdist(x, y, bx, by) < V.INTERACT + pad; };
+  V.nearTrainer = (cls, x, y, pad = 0) => { if (!V.TRAINERS[cls]) return true; if (V.inDun) return false; const [tx, ty] = V.trainerPos(cls); return V.gdist(x, y, tx, ty) < V.INTERACT + pad; };
+  V.nearBoard = (x, y, pad = 0) => { if (V.inDun) return false; const [bx, by] = V.boardPos(); return V.gdist(x, y, bx, by) < V.INTERACT + pad; };
   // bounty state per zone: { i: which bounty in the zone's list, n: kills so far, st: 0 on the board, 1 accepted, 2 ready to turn in }
   V.cleanBounties = (b) => {
     const out = {};
@@ -578,6 +579,32 @@
       spawns: [['stalker', 14], ['voidwisp', 12], ['hknight', 8]], boss: 'hollowking',
       bounties: [{ name: 'Stalk the Stalkers', types: ['stalker'], n: 8 }, { name: 'Void Lights', types: ['voidwisp'], n: 8 }, { name: 'Knights of Nothing', types: ['hknight'], n: 5 }, { name: 'The Hollow King', types: ['hollowking'], n: 1 }] },
   ];
+  // ---------- dungeons: one per zone, a private copy for each party ----------
+  // ang/r: screen angle (radians) and tile radius of the entrance, tucked at the far edge of its zone; rooms are fixed per dungeon.
+  // ring: what half-hides each entrance from behind.
+  V.DUNGEONS = [null,
+    { name: 'Hollowroot Warrens', sub: 'Beneath the roots, the Hollows nest', gate: 'dgate', ang: -1.17, r: 37, floor: ['MOSS', 'DIRT'], deco: ['mushroom', 'deadtree', 'rock', 'bush'], packs: ['hollow', 'wolf'], ring: ['pine', 'deadtree', 'pine', 'pine'], boss: 'thornback', dark: 0.72 },
+    { name: 'The Sunken Crypt', sub: 'The drowned keep their dead below', gate: 'dgate', ang: -0.6, r: 35, floor: ['GRAVE', 'DIRT'], deco: ['candle', 'grave', 'grave', 'rock'], packs: ['wisp', 'drowned', 'archer'], ring: ['grave', 'deadtree', 'grave', 'candle'], boss: 'matron', dark: 0.74 },
+    { name: 'Warden\'s Forge', sub: 'The old flame still burns below', gate: 'dgate', ang: 3.54, r: 37, floor: ['ASH', 'EMBER'], deco: ['brazier', 'pillar', 'rock', 'pillar'], packs: ['cinder', 'imp', 'golem'], ring: ['pillar', 'rock', 'pillar', 'rock'], boss: 'warden', dark: 0.66 },
+    { name: 'The Barrow Deeps', sub: 'Something old stirs in the barrows', gate: 'dgate', ang: 1.97, r: 35, floor: ['DIRT', 'GRASS'], deco: ['stone', 'grave', 'rock', 'candle'], packs: ['skeleton', 'archer', 'wolf'], ring: ['stone', 'rock', 'stone', 'grave'], boss: 'matron', dark: 0.72 },
+    { name: 'The Rime Vault', sub: 'Frozen halls that never thaw', gate: 'portal', ang: -1.3, r: 54, floor: ['SNOW', 'ICE'], deco: ['crystal', 'rock', 'snowpine', 'crystal'], packs: ['frostwolf', 'wraith', 'icegolem'], ring: ['snowpine', 'crystal', 'snowpine', 'rock'], boss: 'revenant', dark: 0.62 },
+    { name: 'Throne of Nothing', sub: 'The Hollow King\'s seat in the void', gate: 'portal', ang: 2.65, r: 54, floor: ['VOID', 'ASH'], deco: ['voidspire', 'pillar', 'voidspire', 'rock'], packs: ['stalker', 'voidwisp', 'hknight'], ring: ['voidspire', 'pillar', 'voidspire', 'rock'], boss: 'hollowking', dark: 0.76 },
+  ];
+  // the rooms, in tile coords: entrance, three halls of enemies, the boss chamber
+  V.DUN_ROOMS = [[22, 58, 5, 'start'], [38, 46, 7, 'pack'], [55, 60, 7, 'pack'], [72, 46, 7, 'pack'], [91, 58, 9, 'boss']];
+  V.DUN_MODES = [
+    { name: 'Normal', hp: 1, dmg: 1, xp: 1, loot: 0, color: '#9be38a', desc: 'The dungeon as it is.' },
+    { name: 'Hard', hp: 2.2, dmg: 1.6, xp: 1.6, loot: 0.5, color: '#ffb02e', desc: 'Enemies have 2.2× health and 1.6× damage. Better loot.' },
+    { name: 'Nightmare', hp: 4.5, dmg: 2.4, xp: 2.5, loot: 1, color: '#e0464e', desc: 'Enemies have 4.5× health and 2.4× damage. The best loot.' },
+  ];
+  V.DUN_LIVES = 3; V.PARTY_MAX = 4;
+  V.dunLevel = (z) => V.ZONE_INFO[z].lv[1];
+  V.gateTile = (z) => { const d = V.DUNGEONS[z], sx = d.r * Math.SQRT2 * Math.cos(d.ang), sy = d.r * Math.SQRT2 * Math.sin(d.ang); return [V.C + (sx + sy) / 2, V.C + (sy - sx) / 2]; };
+  V.gatePos = (z) => V.toWorld(...V.gateTile(z));
+  V.nearGate = (x, y, pad = 0) => { for (let z = 1; z < V.DUNGEONS.length; z++) { const [gx, gy] = V.gatePos(z); if (V.gdist(x, y, gx, gy) < V.INTERACT + 50 + pad) return z; } return 0; };
+  V.dunExit = () => V.toWorld(V.DUN_ROOMS[0][0] - 2.6, V.DUN_ROOMS[0][1]);
+  V.nearExit = (x, y, pad = 0) => { const [ex, ey] = V.dunExit(); return V.gdist(x, y, ex, ey) < V.INTERACT + 50 + pad; };
+
   V.bountyReward = (zone) => Math.round(V.xpNext(Math.max(1, V.ZONE_INFO[zone].lv[1])) * 0.3);
 
   V.FIELD_KINDS = ['fire', 'bloom', 'banner', 'plague', 'smoke', 'trap', 'rain', 'storm'];

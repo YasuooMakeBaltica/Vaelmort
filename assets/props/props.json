@@ -2,76 +2,521 @@
  "dummy": [
   {
    "file": "dummy_0.png",
-   "w": 38,
+   "w": 41,
    "h": 52,
-   "ax": 19,
-   "ay": 47
+   "ax": 20,
+   "ay": 47,
+   "frames": 8
   }
  ],
  "tent": [
   {
    "file": "tent_0.png",
-   "w": 104,
+   "w": 103,
    "h": 80,
-   "ax": 52,
-   "ay": 53
+   "ax": 51.5,
+   "ay": 54,
+   "frames": 8
   },
   {
    "file": "tent_1.png",
-   "w": 104,
+   "w": 103,
    "h": 80,
-   "ax": 52,
-   "ay": 53
+   "ax": 51.5,
+   "ay": 54,
+   "frames": 8
   },
   {
    "file": "tent_2.png",
-   "w": 104,
+   "w": 103,
    "h": 80,
-   "ax": 52,
-   "ay": 53
+   "ax": 51.5,
+   "ay": 54,
+   "frames": 8
   }
  ],
  "well": [
   {
    "file": "well_0.png",
    "w": 46,
-   "h": 61,
+   "h": 60,
    "ax": 23,
-   "ay": 50
+   "ay": 50,
+   "frames": 8
   }
  ],
  "board": [
   {
    "file": "board_0.png",
-   "w": 44,
+   "w": 45,
    "h": 51,
-   "ax": 22,
-   "ay": 47
+   "ax": 22.5,
+   "ay": 47,
+   "frames": 8
   }
  ],
  "lamp": [
   {
    "file": "lamp_0.png",
-   "w": 12,
-   "h": 59,
-   "ax": 6,
-   "ay": 54,
+   "w": 13,
+   "h": 58,
+   "ax": 6.5,
+   "ay": 55,
+   "frames": 8,
    "glow": [
-    6,
-    10
+    7,
+    11
    ]
   }
  ],
  "brazier": [
   {
    "file": "brazier_0.png",
-   "w": 26,
-   "h": 30,
-   "ax": 13,
+   "w": 25,
+   "h": 29,
+   "ax": 12.5,
    "ay": 25,
+   "frames": 8,
    "fire": [
     13,
     7
+   ]
+  }
+ ],
+ "dentry": [
+  {
+   "file": "dentry_1.png",
+   "w": 73,
+   "h": 102,
+   "ax": 39,
+   "ay": 75,
+   "frames": 8,
+   "glow": [
+    38,
+    64
+   ],
+   "fx": []
+  },
+  {
+   "file": "dentry_1.png",
+   "w": 115,
+   "h": 142,
+   "ax": 62,
+   "ay": 120,
+   "frames": 8,
+   "glow": [
+    65,
+    107
+   ],
+   "fx": []
+  },
+  {
+   "file": "dentry_2.png",
+   "w": 91,
+   "h": 103,
+   "ax": 48,
+   "ay": 85,
+   "frames": 8,
+   "glow": [
+    49,
+    75
+   ],
+   "fx": [
+    [
+     40,
+     91
+    ],
+    [
+     71,
+     86
+    ]
+   ]
+  },
+  {
+   "file": "dentry_3.png",
+   "w": 93,
+   "h": 99,
+   "ax": 45,
+   "ay": 83,
+   "frames": 8,
+   "glow": [
+    44,
+    62
+   ],
+   "fx": [
+    [
+     13,
+     13
+    ],
+    [
+     77,
+     4
+    ]
+   ]
+  },
+  {
+   "file": "dentry_4.png",
+   "w": 120,
+   "h": 74,
+   "ax": 64,
+   "ay": 55,
+   "frames": 8,
+   "glow": [
+    66,
+    46
+   ],
+   "fx": []
+  },
+  {
+   "file": "dentry_5.png",
+   "w": 97,
+   "h": 113,
+   "ax": 47,
+   "ay": 103,
+   "frames": 8,
+   "glow": [
+    47,
+    61
+   ],
+   "fx": []
+  },
+  {
+   "file": "dentry_6.png",
+   "w": 90,
+   "h": 114,
+   "ax": 45,
+   "ay": 101,
+   "frames": 8,
+   "glow": [
+    45,
+    49
+   ],
+   "fx": []
+  }
+ ],
+ "rock": [
+  {
+   "file": "rock_0.png",
+   "w": 53,
+   "h": 33,
+   "ax": 24,
+   "ay": 23,
+   "frames": 8
+  },
+  {
+   "file": "rock_1.png",
+   "w": 48,
+   "h": 33,
+   "ax": 23,
+   "ay": 23,
+   "frames": 8
+  },
+  {
+   "file": "rock_2.png",
+   "w": 47,
+   "h": 33,
+   "ax": 22,
+   "ay": 23,
+   "frames": 8
+  }
+ ],
+ "pine": [
+  {
+   "file": "pine_0.png",
+   "w": 61,
+   "h": 118,
+   "ax": 30.5,
+   "ay": 113,
+   "frames": 8
+  },
+  {
+   "file": "pine_1.png",
+   "w": 62,
+   "h": 124,
+   "ax": 30.5,
+   "ay": 119,
+   "frames": 8
+  },
+  {
+   "file": "pine_2.png",
+   "w": 64,
+   "h": 129,
+   "ax": 31.5,
+   "ay": 125,
+   "frames": 8
+  }
+ ],
+ "snowpine": [
+  {
+   "file": "snowpine_0.png",
+   "w": 61,
+   "h": 118,
+   "ax": 30.5,
+   "ay": 113,
+   "frames": 8
+  },
+  {
+   "file": "snowpine_1.png",
+   "w": 62,
+   "h": 124,
+   "ax": 30.5,
+   "ay": 119,
+   "frames": 8
+  },
+  {
+   "file": "snowpine_2.png",
+   "w": 64,
+   "h": 129,
+   "ax": 31.5,
+   "ay": 125,
+   "frames": 8
+  }
+ ],
+ "deadtree": [
+  {
+   "file": "deadtree_0.png",
+   "w": 77,
+   "h": 108,
+   "ax": 32,
+   "ay": 100,
+   "frames": 8
+  },
+  {
+   "file": "deadtree_1.png",
+   "w": 72,
+   "h": 103,
+   "ax": 42,
+   "ay": 96,
+   "frames": 8
+  },
+  {
+   "file": "deadtree_2.png",
+   "w": 66,
+   "h": 110,
+   "ax": 31,
+   "ay": 102,
+   "frames": 8
+  }
+ ],
+ "stone": [
+  {
+   "file": "stone_0.png",
+   "w": 24,
+   "h": 74,
+   "ax": 10.5,
+   "ay": 68,
+   "frames": 8
+  },
+  {
+   "file": "stone_1.png",
+   "w": 24,
+   "h": 74,
+   "ax": 10.5,
+   "ay": 68,
+   "frames": 8
+  },
+  {
+   "file": "stone_2.png",
+   "w": 24,
+   "h": 73,
+   "ax": 10.5,
+   "ay": 67,
+   "frames": 8
+  }
+ ],
+ "grave": [
+  {
+   "file": "grave_0.png",
+   "w": 27,
+   "h": 37,
+   "ax": 13,
+   "ay": 28,
+   "frames": 8
+  },
+  {
+   "file": "grave_1.png",
+   "w": 28,
+   "h": 40,
+   "ax": 14,
+   "ay": 31,
+   "frames": 8
+  },
+  {
+   "file": "grave_2.png",
+   "w": 30,
+   "h": 37,
+   "ax": 16,
+   "ay": 28,
+   "frames": 8
+  }
+ ],
+ "pillar": [
+  {
+   "file": "pillar_0.png",
+   "w": 35,
+   "h": 82,
+   "ax": 15,
+   "ay": 73,
+   "frames": 8
+  },
+  {
+   "file": "pillar_1.png",
+   "w": 35,
+   "h": 89,
+   "ax": 15,
+   "ay": 80,
+   "frames": 8
+  },
+  {
+   "file": "pillar_2.png",
+   "w": 35,
+   "h": 101,
+   "ax": 15,
+   "ay": 92,
+   "frames": 8
+  }
+ ],
+ "bush": [
+  {
+   "file": "bush_0.png",
+   "w": 34,
+   "h": 23,
+   "ax": 17,
+   "ay": 17,
+   "frames": 8
+  },
+  {
+   "file": "bush_1.png",
+   "w": 34,
+   "h": 23,
+   "ax": 17,
+   "ay": 17,
+   "frames": 8
+  },
+  {
+   "file": "bush_2.png",
+   "w": 34,
+   "h": 23,
+   "ax": 17,
+   "ay": 17,
+   "frames": 8
+  }
+ ],
+ "mushroom": [
+  {
+   "file": "mushroom_0.png",
+   "w": 21,
+   "h": 14,
+   "ax": 10.5,
+   "ay": 11,
+   "frames": 8
+  },
+  {
+   "file": "mushroom_1.png",
+   "w": 21,
+   "h": 15,
+   "ax": 10.5,
+   "ay": 11,
+   "frames": 8
+  },
+  {
+   "file": "mushroom_2.png",
+   "w": 21,
+   "h": 14,
+   "ax": 10.5,
+   "ay": 11,
+   "frames": 8
+  }
+ ],
+ "candle": [
+  {
+   "file": "candle_0.png",
+   "w": 17,
+   "h": 20,
+   "ax": 8.5,
+   "ay": 16,
+   "frames": 8
+  },
+  {
+   "file": "candle_1.png",
+   "w": 17,
+   "h": 20,
+   "ax": 8.5,
+   "ay": 16,
+   "frames": 8
+  },
+  {
+   "file": "candle_2.png",
+   "w": 17,
+   "h": 20,
+   "ax": 8.5,
+   "ay": 16,
+   "frames": 8
+  }
+ ],
+ "crystal": [
+  {
+   "file": "crystal_0.png",
+   "w": 49,
+   "h": 65,
+   "ax": 21.5,
+   "ay": 57,
+   "frames": 8
+  },
+  {
+   "file": "crystal_1.png",
+   "w": 49,
+   "h": 69,
+   "ax": 21.5,
+   "ay": 61,
+   "frames": 8
+  },
+  {
+   "file": "crystal_2.png",
+   "w": 49,
+   "h": 74,
+   "ax": 21.5,
+   "ay": 66,
+   "frames": 8
+  }
+ ],
+ "voidspire": [
+  {
+   "file": "voidspire_0.png",
+   "w": 48,
+   "h": 65,
+   "ax": 21,
+   "ay": 57,
+   "frames": 8
+  },
+  {
+   "file": "voidspire_1.png",
+   "w": 48,
+   "h": 70,
+   "ax": 21,
+   "ay": 62,
+   "frames": 8
+  },
+  {
+   "file": "voidspire_2.png",
+   "w": 48,
+   "h": 74,
+   "ax": 21,
+   "ay": 66,
+   "frames": 8
+  }
+ ],
+ "obelisk": [
+  {
+   "file": "obelisk_0.png",
+   "w": 72,
+   "h": 162,
+   "ax": 36,
+   "ay": 144,
+   "frames": 8,
+   "glow": [
+    36,
+    32
    ]
   }
  ]
