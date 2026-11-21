@@ -171,7 +171,7 @@
   let campPts = null;
   V.inCamp = (x, y) => {
     if (V.inDun) return false; // (set by the client while it shows a dungeon; the server's sims check their own)
-    campPts = campPts || Object.keys(V.TRAINERS).map(V.trainerPos);
+    campPts = campPts || Object.keys(V.TRAINERS).map(V.trainerPos).concat((V.OUTPOSTS || []).map(V.npcPos)); // trainers and quest outposts
     for (const [tx, ty] of campPts) if (V.gdist(x, y, tx, ty) < V.CAMP_R) return true;
     return false;
   };
@@ -479,12 +479,14 @@
     [4, 'barrowblade', 1.5], [4, 'moorcloak', 1.5], [5, 'icefang', 1.5], [5, 'snowstriders', 1.5], [6, 'voidshard', 1.5], [6, 'stalkerhood', 1.5]];
   V.makeUnique = function (key, lv) {
     const u = V.UNIQUES[key]; if (!u) return null;
+    lv = Math.max(1, Math.min(V.MAX_LEVEL, V.UNIQUE_LV[key] || lv | 0)); // one fixed level per unique: every copy is the same
     const st = {}; for (const [k, m] of u.stats) st[k] = Math.round(V.affixValue(k, lv, 5, m) * 10000) / 10000;
     return { id: Math.floor(Math.random() * 2 ** 31).toString(36) + Date.now().toString(36).slice(-4), s: u.s, r: 5, lv: Math.max(1, lv | 0), n: u.name, st, u: key };
   };
   V.affixValue = (stat, lv, r, roll) => V.AFFIX[stat][0] * (1 + lv * 0.02) * V.RARITY[r].mult * roll;
   V.ITEM_BASES = BASES;
   V.makeItem = function (lv, r, rnd = Math.random, slot, baseName) {
+    lv = Math.max(1, Math.min(V.MAX_LEVEL, lv | 0)); // drops from bosses above the cap still fit a level-200 character
     const s = slot ?? ((rnd() * V.SLOTS.length) | 0), st = {}, imp = IMPLICIT[s];
     st[imp] = V.affixValue(imp, lv, r, 1.6 + rnd() * 0.4); // the slot's own stat is the strongest
     const pool = Object.keys(V.AFFIX).filter((k) => k !== imp), picked = [];
@@ -501,7 +503,7 @@
     if (!it || typeof it !== 'object' || !(it.s >= 0 && it.s < V.SLOTS.length) || !(it.r >= 0 && it.r < V.RARITY.length)) return null;
     const st = {}; for (const [k, v] of Object.entries(it.st || {})) if (V.AFFIX[k] && Number.isFinite(v)) st[k] = Math.max(0, Math.min(5, v * 1)) * (k === 'thorns' ? 1 : 1);
     if (it.st && it.st.thorns) st.thorns = Math.max(0, Math.min(5000, +it.st.thorns || 0));
-    return { ...(V.UNIQUES[it.u] ? { u: it.u } : {}), id: String(it.id || Math.random().toString(36).slice(2)).slice(0, 16), s: it.s | 0, r: it.r | 0, lv: Math.max(1, Math.min(V.MAX_LEVEL + 10, it.lv | 0)), n: String(it.n || 'Item').slice(0, 48), st };
+    return { ...(V.UNIQUES[it.u] ? { u: it.u } : {}), ...(V.CAT[it.k] ? { k: it.k } : {}), id: String(it.id || Math.random().toString(36).slice(2)).slice(0, 16), s: it.s | 0, r: it.r | 0, lv: Math.max(1, Math.min(V.MAX_LEVEL, it.lv | 0)), n: String(it.n || 'Item').slice(0, 48), st };
   };
   V.cleanGear = (g) => {
     const inv = [], eq = {};
@@ -674,4 +676,51 @@
     }
     return { blockedGround, hitProp, solidAt, moveEnt, pathEnd };
   };
+  // ---------- the item catalog: every piece of gear is a fixed, named item ----------
+  // Each zone has two tiers (early and late in its level range). Every slot comes as a Common, a Rare and an Epic of each
+  // tier, plus one Legendary per slot from the late tier (bosses, dungeons and elites only). The same item is the same
+  // everywhere: same name, same stats. Drops choose WHICH item, never what is on it, so duplicates are real and tradeable.
+  const CAT_NAMES = { // zone: [early material, late material], rare suffixes, epic names, legendary title
+    1: { mat: ['Hollowbark', 'Thornwood'], rare: ['of the Watch', 'of the Pack'], epic: ['Rootsong', 'Thornback\'s'], leg: 'Heartroot' },
+    4: { mat: ['Barrow-iron', 'Cairnstone'], rare: ['of the Bell', 'of the Old Kings'], epic: ['Gravewarden\'s', 'Kingsbarrow'], leg: 'Deepbarrow' },
+    2: { mat: ['Mire-soaked', 'Black-water'], rare: ['of the Lantern', 'of the Drowned'], epic: ['Wisplit', 'Matron\'s'], leg: 'Tidesworn' },
+    3: { mat: ['Cinderforged', 'Ashen'], rare: ['of the Anvil', 'of the Old Flame'], epic: ['Slagsong', 'Warden\'s'], leg: 'Pyreheart' },
+    5: { mat: ['Rimebound', 'Glacial'], rare: ['of the Long Cold', 'of the Rime'], epic: ['Frostbitten', 'Revenant\'s'], leg: 'Winterless' },
+    6: { mat: ['Voidtouched', 'Unsung'], rare: ['of the Hush', 'of the Choir'], epic: ['Hollowed', 'Last Cantor\'s'], leg: 'Lastverse' },
+  };
+  V.CAT_ZONES = [1, 4, 2, 3, 5, 6]; // in level order
+  V.CATALOG = []; V.CAT = {};
+  const catHash = (str) => { let h = 2166136261; for (const ch of str) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return h >>> 0; };
+  const catRng = (seed) => { let a = seed; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+  V.catTierLv = (z, tier) => { const [a, b] = V.ZONE_INFO[z].lv; return Math.min(V.MAX_LEVEL, Math.max(1, tier ? b - 2 : Math.round(a + (b - a) * 0.3))); };
+  for (const z of V.CAT_ZONES) for (let tier = 0; tier < 2; tier++) for (let s = 0; s < V.SLOTS.length; s++) {
+    const N = CAT_NAMES[z], lv = V.catTierLv(z, tier), bases = BASES[s];
+    for (const r of tier ? [0, 2, 3, 4] : [0, 2, 3]) {
+      const k = `${z}.${tier}.${s}.${r}`, rnd = catRng(catHash('item:' + k));
+      const base = bases[catHash(`${k}:base`) % bases.length];
+      const n = r === 4 ? `${N.leg} ${base}` : r === 3 ? `${N.epic[tier]} ${base}` : r === 2 ? `${N.mat[tier]} ${base} ${N.rare[tier]}` : `${N.mat[tier]} ${base}`;
+      const st = {}, imp = IMPLICIT[s];
+      st[imp] = V.affixValue(imp, lv, r, 1.8);
+      const pool = Object.keys(V.AFFIX).filter((x) => x !== imp);
+      for (let i = 0; i < V.RARITY[r].affixes && pool.length; i++) { const a = pool.splice((rnd() * pool.length) | 0, 1)[0]; st[a] = V.affixValue(a, lv, r, 1); }
+      for (const a in st) st[a] = Math.round(st[a] * 10000) / 10000;
+      const def = { k, z, tier, s, r, lv, n, st };
+      V.CATALOG.push(def); V.CAT[k] = def;
+    }
+  }
+  const newItemId = () => Math.floor(Math.random() * 2 ** 31).toString(36) + Date.now().toString(36).slice(-4);
+  V.catItem = (k) => { const d = V.CAT[k]; return d && { id: newItemId(), k, s: d.s, r: d.r, lv: d.lv, n: d.n, st: { ...d.st } }; };
+  V.zoneForLevel = (lv) => V.CAT_ZONES.find((z) => lv <= V.ZONE_INFO[z].lv[1]) || 6;
+  // which catalog piece drops: from this zone, the tier nearest the enemy's level, this rarity (Uncommon rolls give Commons)
+  V.catDrop = (z, lv, r, rnd = Math.random, slot) => {
+    if (!CAT_NAMES[z]) z = V.zoneForLevel(lv);
+    const rr = r <= 1 ? 0 : Math.min(4, r), tier = rr === 4 || lv >= (V.catTierLv(z, 0) + V.catTierLv(z, 1)) / 2 ? 1 : 0;
+    const s = slot ?? ((rnd() * V.SLOTS.length) | 0);
+    return V.catItem(`${z}.${tier}.${s}.${rr}`);
+  };
+  // uniques have one fixed level each: where they come from
+  V.UNIQUE_LV = {};
+  for (const [boss, list] of Object.entries(V.BOSS_LOOT)) { const z = V.ZONE_INFO.findIndex((zi) => zi.boss === boss); for (const [key] of list) V.UNIQUE_LV[key] = z > 0 ? V.ZONE_INFO[z].lv[1] : V.MAX_LEVEL; }
+  for (const [z, key] of V.ZONE_LOOT) V.UNIQUE_LV[key] = V.ZONE_INFO[z].lv[1];
+
 })(typeof window !== 'undefined' ? window : globalThis);

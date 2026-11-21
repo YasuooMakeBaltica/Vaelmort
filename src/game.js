@@ -37,7 +37,7 @@
   let wantSkill = 0, wantDodge = false;
   const chatInput = $('chatInput');
   const typing = () => document.activeElement && document.activeElement.tagName === 'INPUT';
-  const WINS = ['winTalents', 'winChar', 'winMap', 'winMenu', 'winBoard', 'winAdmin', 'winEvolve', 'winInv', 'winDungeon', 'winParty'];
+  const WINS = ['winTalents', 'winChar', 'winMap', 'winMenu', 'winBoard', 'winAdmin', 'winEvolve', 'winInv', 'winDungeon', 'winParty', 'winTalk', 'winQuests'];
   const anyWindow = () => WINS.some((id) => !$(id).hidden);
   addEventListener('keydown', (e) => {
     if (typing() || !G.started) return;
@@ -50,6 +50,7 @@
     if (k === 'n') { toggleWindow('winTalents'); return; }
     if (k === 'm') { if (G.dun) say('No map down here'); else toggleWindow('winMap'); return; }
     if (k === 'p') { toggleWindow('winParty'); return; }
+    if (k === 'j') { toggleWindow('winQuests'); return; }
     if (k === 't') { if (!e.repeat && G.link && G.link.recall) G.link.recall(); return; }
     if (k === 'k' && V.Snd) { const m = V.Snd.toggleMute(); say(m ? 'Sound off (K)' : 'Sound on (K)'); syncAudioUi(); return; }
     if (k === 'f8' && G.admin) { e.preventDefault(); toggleWindow('winAdmin'); return; }
@@ -138,6 +139,7 @@
       case 'hurt': if (isMe) S.play('hurt'); return;
       case 'respawn': if (isMe) S.play('respawn'); return;
       case 'recall': return S.play('learn', x, y);
+      case 'quests': if (isMe && e.msg) S.play(e.done ? 'bountyDone' : e.acc ? 'bountyTake' : 'xp', undefined, undefined, {}, 0.1); return;
       case 'recalled': return S.play('respawn', x, y);
       case 'xp': if (isMe) S.play('xp', undefined, undefined, {}, 0.12); return;
       case 'levelup': if (isMe) S.play('levelup'); return;
@@ -337,6 +339,16 @@
         break;
       }
       case 'found': if (isMe) { const D = V.DUNGEONS[e.z]; banner('Dungeon Discovered', D.name, D.sub, 4); chatLine(`You discovered ${D.name}. It is marked on your map now.`, 'loot'); if (V.Snd) V.Snd.play('bountyReady'); } break;
+      case 'quests':
+        if (!isMe) break;
+        G.quests = V.cleanQuests(e.q); G.qkey = '';
+        if (e.msg) chatLine(e.msg, 'loot');
+        if (e.acc) toast('Quest accepted', V.QUEST[e.acc].title);
+        if (e.done) { const q = V.QUEST[e.done]; if (q.main) banner(q.title, 'Story quest complete', '', 3.2); else toast('Quest complete', q.title, true); G.flash = 0.25; }
+        else if (e.msg && !e.acc) say(e.msg.replace(/ · .*$/, ''));
+        if (!$('winTalk').hidden) renderTalk();
+        if (!$('winQuests').hidden) renderQuestLog();
+        break;
       case 'recall': if (isMe) { G.recallT = 0; G.recallMax = e.t; $('castbar').hidden = false; chatLine('Returning to Vaelmort Gate… hold still.', 'sys'); } if (pl) ring(pl.x, pl.y, 40, '#3ccf97', 0.8, 2); break;
       case 'recallx': if (isMe) { G.recallMax = 0; $('castbar').hidden = true; say('Return interrupted'); } break;
       case 'recalled':
@@ -345,8 +357,8 @@
         G.bolts.push({ kind: 'column', x: e.x, y: e.y, t: 0, life: 0.8, w: 14 });
         break;
       case 'dclear':
-        banner('Dungeon Cleared', `${V.DUNGEONS[e.zone].name} · ${V.DUN_MODES[e.mode].name}`, 'Leave through the portal at the entrance', 4.5);
-        chatLine(`${V.DUNGEONS[e.zone].name} cleared on ${V.DUN_MODES[e.mode].name}! Leave through the portal at the entrance.`, 'loot'); G.flash = 0.5;
+        banner('Dungeon Cleared', `${V.DUNGEONS[e.zone].name} · ${V.DUN_MODES[e.mode].name}`, 'Grab your loot: you return to the world in 10 seconds', 4.5);
+        chatLine(`${V.DUNGEONS[e.zone].name} cleared on ${V.DUN_MODES[e.mode].name}!`, 'loot'); G.flash = 0.5;
         break;
       case 'dwipe': banner('Your party has fallen', G.dun ? V.DUNGEONS[G.dun.zone].name : '', 'Returning to the gate…', 4); break;
       case 'respawn':
@@ -594,8 +606,9 @@
             if (m.t === 'chars') { chars = m.list; if (!resolve(m) && settled && !G.started) renderChars(); settle(ok); return; }
             if (m.t === 'error') { if (resolve(m)) return; if (!settled) settle(bad, new Error(m.msg)); else if (G.started) chatLine(m.msg, 'sys'); else charsStatus(m.msg, true); return; }
             if (m.t === 'welcome') { resolve(m); return; }
-            if (m.t === 's') { if (G.started && G.mode === 'online') { try { applySnap(m); } catch (err) { reportError(err, 'update'); } } return; }
-            if (m.t === 'map') { if (G.started) { try { enterMap(m); } catch (err) { reportError(err, 'map'); } } return; }
+            if (m.t === 's') { if (G.started && G.mode === 'online' && (m.w === undefined || m.w === (G.epoch || 0))) { try { applySnap(m); } catch (err) { reportError(err, 'update'); } } return; }
+            if (m.t === 'map') { if (G.started) { G.epoch = m.w; L.x = m.x; L.y = m.y; L.seq = m.seq; L.move = null; try { enterMap(m); } catch (err) { reportError(err, 'map'); } } return; }
+            if (m.t === 'dleave') { G.dunLeaveAt = performance.now() + m.s * 1000; chatLine(`Dungeon cleared. Returning to the world in ${m.s} seconds.`, 'loot'); return; }
             if (m.t === 'party') { G.party = m.id ? m : null; renderParty(); return; }
             if (m.t === 'pinvite') { gotInvite(m); return; }
             if (m.t === 'chat') chatLine(m.text, m.sys ? 'sys' : m.party ? 'party' : '', m.name);
@@ -636,6 +649,9 @@
           trial() { send({ t: 'trial' }); },
           nuke() { send({ t: 'nuke' }); },
           recall() { send({ t: 'recall' }); },
+          questAccept(q) { send({ t: 'qaccept', q }); },
+          questTurnIn(q, pick) { send({ t: 'qturnin', q, pick }); },
+          questAbandon(q) { send({ t: 'qabandon', q }); },
           pick(id) { send({ t: 'pick', id }); },
           equip(i) { send({ t: 'equip', i }); },
           unequip(slot) { send({ t: 'unequip', slot }); },
@@ -862,6 +878,12 @@
       ctx.globalAlpha = alpha; ctx.drawImage(tmp, 0, 0, 96, 96, dx, dy, 96, 96); ctx.globalAlpha = 1;
     } else { ctx.globalAlpha = alpha; ctx.drawImage(img, f * 96, row * 96, 96, 96, dx, dy, 96, 96); ctx.globalAlpha = 1; }
   }
+  // one frame cut out of an animated prop strip (cached), for code that draws a whole canvas
+  function frameCanvas(s, fr) {
+    s.cut = s.cut || [];
+    if (!s.cut[fr]) { const c = document.createElement('canvas'); c.width = s.w; c.height = s.h; c.getContext('2d').drawImage(s.c, fr * s.w, 0, s.w, s.h, 0, 0, s.w, s.h); s.cut[fr] = c; }
+    return s.cut[fr];
+  }
   function drawSprite(c, x, y, ax, ay, flip, tint, clip = 0, alpha = 1) {
     let src = c;
     if (tint) {
@@ -1061,6 +1083,7 @@
     }
     for (const L of G.loot.values()) if (Math.abs(L.x - cx - W / 2) < W && Math.abs(L.y - cy - H / 2) < H) list.push({ y: L.y - 1, k: 8, o: L });
     for (const n of G.npcs) if (Math.abs(n.x - cx - W / 2) < W && Math.abs(n.y - cy - H / 2) < H) list.push({ y: n.y, k: 7, o: n });
+    if (!G.dun) for (const n of G.qnpcs) if (Math.abs(n.x - cx - W / 2) < W && Math.abs(n.y - cy - H / 2) < H) list.push({ y: n.y, k: 7, o: n });
     for (const f of G.foes) if (!f.dead && !f.far) list.push({ y: f.y, k: 1, o: f });
     for (const p of G.players.values()) if (!p.dead) list.push({ y: p.id === G.me ? L.y : p.y, k: 2, o: p });
     for (const s of G.shots.values()) list.push({ y: s.y, k: 3, o: s });
@@ -1114,6 +1137,13 @@
         addLight(o.x - cx, o.y - cy - 30, 34, o.kind === 'wolf' ? '#a8f0d0' : '#7dffc8', 0.6);
       } else if (it.k === 6) drawBanner(o, cx, cy);
       else if (it.k === 8) drawLoot(o, cx, cy, tags);
+      else if (it.k === 7 && o.id) { // a quest giver
+        drawHero(o.cls, 'idle', o.row, frameOf('idle', G.t + o.phase, o.cls), o.x - cx, o.y - cy, 1, null);
+        addLight(o.x - cx, o.y - cy - 22, 70, V.NPCS[o.id].color, 0.55);
+        const st = npcState(o.id);
+        tags.push([o.name, -1, o.x - cx, o.y - cy - 64, V.NPCS[o.id].color, -1, `<${o.title}>`]);
+        if (st) { const bob = Math.sin(G.t * 3) * 2; outlined(st === 'ready' ? '?' : st === 'open' ? '!' : '?', Math.round(o.x - cx), Math.round(o.y - cy - 84 + bob), st === 'prog' ? '#8f86a3' : '#ffd84a', 2); }
+      }
       else if (it.k === 7) {
         drawHero(o.cls, 'idle', o.row, frameOf('idle', G.t + o.phase, o.cls), o.x - cx, o.y - cy, 1, null);
         addLight(o.x - cx, o.y - cy - 22, 60, glow(o.cls), 0.5);
@@ -1279,7 +1309,7 @@
     const k = S * DPR(), g = lblCtx;
     g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, tview.width, tview.height); g.lineJoin = 'round';
     for (const l of labels) {
-      const px = Math.round((l.big ? 18 : l.plain ? 13 : 12.5) * DPR());
+      const px = Math.round((l.big === 2 ? 30 : l.big ? 18 : l.plain ? 13 : 12.5) * DPR());
       g.font = `${l.big ? 800 : 700} ${px}px Inter, system-ui, sans-serif`;
       g.textAlign = l.align; g.textBaseline = l.base === 'alphabetic' ? 'alphabetic' : l.base; g.globalAlpha = l.alpha;
       g.lineWidth = 3.2 * DPR(); g.strokeStyle = 'rgba(5,4,10,0.92)'; g.strokeText(l.s, l.x * k, l.y * k);
@@ -1337,7 +1367,7 @@
     const def = f.def, x = f.x - cx, y = f.y - cy, tint = f.flash > 0 ? 'rgba(255,255,255,0.85)' : (f.flags & 32) ? 'rgba(120,170,255,0.18)' : null;
     if (f.type === 'dummy') {
       const s = G.spr.dummy[0], wob = f.flash > 0 ? Math.sin(G.t * 60) * 1.5 : 0;
-      drawSprite(s.c, x + wob, y, s.ax, s.ay, false, tint);
+      drawSprite(s.frames ? frameCanvas(s, Math.floor(G.t * 7 + f.id) % s.frames) : s.c, x + wob, y, s.ax, s.ay, false, tint); // one frame of the swaying strip
       return;
     }
     const m = G.foeMeta[def.art], [anim, fr] = foeFrame(f);
@@ -1434,6 +1464,7 @@
     if (V.nearBoard(L.x, L.y)) return { kind: 'board' };
     if (G.dun) { if (V.nearExit(L.x, L.y)) return { kind: 'exit' }; }
     else { const z = V.nearGate(L.x, L.y); if (z) return { kind: 'gate', z }; }
+    if (!G.dun) for (const n of G.qnpcs) if (V.gdist(L.x, L.y, n.x, n.y) < V.INTERACT) return { kind: 'qnpc', n };
     for (const n of G.npcs) if (V.gdist(L.x, L.y, n.x, n.y) < V.INTERACT) return { kind: 'trainer', n, own: n.cls === L.cls };
     return null;
   }
@@ -1442,6 +1473,7 @@
     if (!t) return;
     if (t.kind === 'loot') { if (G.link && G.link.pick) G.link.pick(t.L.id); return; }
     if (t.kind === 'board') { toggleWindow('winBoard'); return; }
+    if (t.kind === 'qnpc') { G.talkNpc = t.n.id; toggleWindow('winTalk'); return; }
     if (t.kind === 'gate') { G.gateZ = t.z; toggleWindow('winDungeon'); return; }
     if (t.kind === 'exit') { ask('Leave the dungeon?', G.self && G.self.dc ? 'The dungeon is cleared. Head back to the world.' : 'You can come back while your party is still inside and you have lives left.', 'Leave').then((ok) => { if (ok && G.link) G.link.leaveDungeon(); }); return; }
     if (t.own) toggleWindow(CLASSES[L.cls].base === true && L.level >= V.EVOLVE.level ? 'winEvolve' : 'winTalents');
@@ -1449,12 +1481,13 @@
   }
   function updatePrompt() {
     const t = (G.self && !G.self.dead) ? nearbyThing() : null;
-    const txt = !t ? '' : t.kind === 'loot' ? `Pick up ${t.L.n}` : t.kind === 'board' ? 'Bounty Board' : t.kind === 'gate' ? `Enter ${V.DUNGEONS[t.z].name}` : t.kind === 'exit' ? 'Leave the dungeon' : t.own ? `Train with ${t.n.name}` : `${t.n.name} · ${G.meta.heroes[t.n.cls].name} trainer`;
+    const txt = !t ? '' : t.kind === 'loot' ? `Pick up ${t.L.n}` : t.kind === 'board' ? 'Bounty Board' : t.kind === 'gate' ? `Enter ${V.DUNGEONS[t.z].name}` : t.kind === 'qnpc' ? `Talk to ${t.n.name}` : t.kind === 'exit' ? 'Leave the dungeon' : t.own ? `Train with ${t.n.name}` : `${t.n.name} · ${G.meta.heroes[t.n.cls].name} trainer`;
     if (txt !== lastPrompt) { lastPrompt = txt; hud.prompt.hidden = !txt; hud.promptText.textContent = txt; }
     const at = V.nearTrainer(L.cls, L.x, L.y);
     if (at !== lastAtTrainer) { lastAtTrainer = at; if (!$('winTalents').hidden) renderTalents(); }
     if (!$('winBoard').hidden && !V.nearBoard(L.x, L.y, 60)) closeWindows();
     if (!$('winDungeon').hidden && (G.dun || V.nearGate(L.x, L.y, 60) !== G.gateZ)) closeWindows();
+    if (!$('winTalk').hidden && (G.dun || !G.talkNpc || !V.nearNpc(G.talkNpc, L.x, L.y, 80))) closeWindows();
   }
   function renderBoard() {
     const s = G.self; if (!s) return;
@@ -1505,18 +1538,22 @@
     const sd = $('slotD'); if (sd) sd.style.setProperty('--cd', (L.cdDodge / (Cl.dodgeCd || DODGE_CD)).toFixed(3));
     hud.tpBadge.hidden = !(s.tp > 0); hud.tpBadge.textContent = s.tp;
     const z = Math.max(0, G.zone), zi = ZONE_INFO[z];
-    const camp = V.inCamp(L.x, L.y) ? G.npcs.find((n) => V.gdist(L.x, L.y, n.x, n.y) < V.CAMP_R) : null, zk = camp ? 'c' + camp.cls : z;
+    const camp = V.inCamp(L.x, L.y) ? G.npcs.concat(G.qnpcs.filter((n) => n.camp)).find((n) => V.gdist(L.x, L.y, n.x, n.y) < V.CAMP_R) : null, zk = camp ? 'c' + (camp.id || camp.cls) : z;
     if (G.dun) { const dk = 'd' + G.dun.zone + G.dun.mode; if (lastZoneLabel !== dk) { lastZoneLabel = dk; hud.zoneLabel.textContent = V.DUNGEONS[G.dun.zone].name; hud.zoneLvLabel.textContent = V.DUN_MODES[G.dun.mode].name; } }
     else if (lastZoneLabel !== zk) { lastZoneLabel = zk; hud.zoneLabel.textContent = camp ? camp.camp : zi.name; hud.zoneLvLabel.textContent = zi.safe || camp ? 'Safe' : `Lv ${zi.lv[0]}–${zi.lv[1]}`; }
     updateDunBar(s);
     const [tx, ty] = V.toTile(L.x, L.y); hud.coords.textContent = `${Math.floor(tx)}, ${Math.floor(ty)}`;
     hud.onlineCount.hidden = G.mode !== 'online'; if (G.mode === 'online') hud.onlineCount.textContent = `${G.online} online`;
-    const bkey = JSON.stringify(s.bb) + JSON.stringify(s.tr);
+    const bkey = JSON.stringify(s.bb) + JSON.stringify(s.tr) + JSON.stringify(G.quests);
     if (bkey !== lastBounties) {
       lastBounties = bkey;
       const act = (s.bb || []).map((b, z) => b && b[2] ? [z, b] : null).filter(Boolean);
-      hud.tracker.hidden = !act.length && !s.tr;
-      hud.bList.innerHTML = (s.tr ? `<div class="bq${s.tr[1] ? ' ready' : ''}"><div class="bn">Trial of the ${esc(G.meta.heroes[L.cls].name)}</div><div class="bprog"><i style="width:${(100 * s.tr[0] / V.EVOLVE.kills).toFixed(1)}%"></i></div><div class="bt">${s.tr[1] ? `Done · return to ${esc(V.TRAINERS[L.cls].name)}` : `Enemies level ${V.EVOLVE.minFoeLevel}+: ${s.tr[0]} / ${V.EVOLVE.kills}`}</div></div>` : '') + act.map(([z, [i, n, st]]) => {
+      const qa = Object.entries((G.quests && G.quests.a) || {}).map(([id, pr]) => [V.QUEST[id], pr]).sort((a, b) => (b[0].main ? 1 : 0) - (a[0].main ? 1 : 0)).slice(0, 4);
+      hud.tracker.hidden = !act.length && !s.tr && !qa.length;
+      const qhtml = qa.map(([q, pr]) => { const ready = V.questReady(q, pr);
+        return `<div class="bq quest${ready ? ' ready' : ''}${q.main ? ' main' : ''}"><div class="bn">${q.main ? '◆ ' : ''}${esc(q.title)}</div>` +
+          (ready ? `<div class="bt">Return to ${esc(V.NPCS[q.to].name)}</div>` : q.obj.map((o, i) => `<div class="bt">${esc(V.objText(o, pr[i] || 0))}</div>`).join('')) + '</div>'; }).join('');
+      hud.bList.innerHTML = qhtml + (s.tr ? `<div class="bq${s.tr[1] ? ' ready' : ''}"><div class="bn">Trial of the ${esc(G.meta.heroes[L.cls].name)}</div><div class="bprog"><i style="width:${(100 * s.tr[0] / V.EVOLVE.kills).toFixed(1)}%"></i></div><div class="bt">${s.tr[1] ? `Done · return to ${esc(V.TRAINERS[L.cls].name)}` : `Enemies level ${V.EVOLVE.minFoeLevel}+: ${s.tr[0]} / ${V.EVOLVE.kills}`}</div></div>` : '') + act.map(([z, [i, n, st]]) => {
         const cur = V.bountyOf(z, { i });
         return `<div class="bq${st === 2 ? ' ready' : ''}"><div class="bn">${esc(cur.name)}</div><div class="bprog"><i style="width:${(100 * n / cur.n).toFixed(1)}%"></i></div>` +
           `<div class="bt">${st === 2 ? 'Done · turn in at the bounty board' : `${esc(cur.types.map((t) => FOES[t].name).join(' or '))}: ${n} / ${cur.n}`}</div></div>`;
@@ -1613,6 +1650,8 @@
           g.save(); g.translate(ex, ey); g.rotate(a); g.beginPath(); g.moveTo(5, 0); g.lineTo(-4, -4); g.lineTo(-4, 4); g.closePath(); g.fillStyle = '#c58bff'; g.fill(); g.restore(); }
       }
     }
+    if (!G.dun) for (const n of G.qnpcs) { const st = npcState(n.id), [px, py] = pos(n.x, n.y); if (!inside(px, py, 6)) continue;
+      dia(n.x, n.y, st === 'ready' || st === 'open' ? '#ffd84a' : '#c9b98a', st === 'ready' || st === 'open' ? 4.5 : 3.4); }
     for (const p of G.players.values()) if (p.id !== G.me && !p.dead) dot(p.x, p.y, glow(p.cls), 3, true);
     const [mx, my] = pos(L.x, L.y);
     g.beginPath(); g.arc(mx, my, 4.5, 0, Math.PI * 2); g.fillStyle = '#ffffff'; g.fill(); g.beginPath(); g.arc(mx, my, 2.6, 0, Math.PI * 2); g.fillStyle = glow(L.cls); g.fill();
@@ -1632,6 +1671,8 @@
     if (id === 'winAdmin' && G.link && G.link.admin) G.link.admin('list');
     $(id).hidden = false; mouse.down = false; keys.clear();
     if (id === 'winParty') renderParty();
+    if (id === 'winTalk') renderTalk();
+    if (id === 'winQuests') renderQuestLog();
     if (id === 'winMap') renderWorldMap(); // (needs the window open to know its size)
   }
   function closeWindows() { for (const id of WINS) $(id).hidden = true; hideTip(); }
@@ -1642,17 +1683,90 @@
   $('btnInv').addEventListener('click', () => toggleWindow('winInv'));
   $('btnMap').addEventListener('click', () => { if (G.dun) say('No map down here'); else toggleWindow('winMap'); });
   $('btnParty').addEventListener('click', () => toggleWindow('winParty'));
+  $('btnQuests').addEventListener('click', () => toggleWindow('winQuests'));
+  for (const b of document.querySelectorAll('.micro button')) if (!b.title) b.title = b.textContent.replace(/^\S+/, '').trim(); // names on hover when only keys show
   $('spectLeave').addEventListener('click', () => { if (G.link && G.link.leaveDungeon) G.link.leaveDungeon(); });
 
+  // ---------- quests ----------
+  // what a quest giver has for you: 'ready' (turn something in), 'open' (a new quest), 'prog' (waiting on you), or nothing
+  function npcState(id) {
+    const qs = G.quests; if (!qs) return null;
+    let st = null;
+    for (const q of V.QUESTS) {
+      const pr = qs.a[q.id];
+      if (pr && q.to === id && V.questReady(q, pr)) return 'ready';
+      if (!pr && q.npc === id && V.questOpen(q, qs, L.level)) st = 'open';
+      else if (pr && (q.npc === id || q.to === id) && !st) st = 'prog';
+    }
+    return st;
+  }
+  const rewardHtml = (q) => `<div class="qrew"><b>Reward</b> ${V.questXp(q).toLocaleString()} XP${q.gear ? ` · choose 1 of 3 <span style="color:${V.RARITY[q.gear].color}">${V.RARITY[q.gear].name}</span> items` : ''}</div>`;
+  const objHtml = (q, pr) => q.obj.length ? `<ul class="qobj">${q.obj.map((o, i) => `<li class="${pr && (pr[i] || 0) >= V.objNeed(o) ? 'ok' : ''}">${esc(V.objText(o, pr ? pr[i] || 0 : 0))}</li>`).join('')}</ul>` : `<ul class="qobj"><li>Speak with ${esc(V.NPCS[q.to].name)}</li></ul>`;
+  function renderTalk() {
+    const id = G.talkNpc, N = V.NPCS[id]; if (!N) return;
+    $('talkName').textContent = N.name; $('talkTitle').textContent = N.title; $('talkName').style.color = N.color;
+    drawPortrait($('talkPortrait'), N.look, 0);
+    const qs = G.quests, cards = [];
+    const ready = V.QUESTS.filter((q) => q.to === id && qs.a[q.id] && V.questReady(q, qs.a[q.id]));
+    const open = V.QUESTS.filter((q) => q.npc === id && V.questOpen(q, qs, L.level));
+    const prog = V.QUESTS.filter((q) => (q.npc === id || q.to === id) && qs.a[q.id] && !ready.includes(q));
+    for (const q of ready) {
+      const ch = V.questChoices(q, L.name, L.level), pick = G.qpick[q.id] ?? -1;
+      cards.push(`<div class="qcard ready${q.main ? ' main' : ''}"><div class="qh">${q.main ? '<span class="tag">Story</span>' : ''}${esc(q.title)}</div>` +
+        q.done.map((t) => `<p class="say">${esc(t)}</p>`).join('') + rewardHtml(q) +
+        (ch.length ? `<div class="qpick">${ch.map((it, i) => `<button type="button" class="qitem${pick === i ? ' on' : ''}" data-q="${q.id}" data-pick="${i}" style="--rc:${V.RARITY[it.r].color}"><b>${esc(it.n)}</b><small>${V.SLOT_NAME[it.s] || V.SLOTS[it.s]} · Lv ${it.lv}</small></button>`).join('')}</div>` : '') +
+        `<button class="btn primary" type="button" data-turnin="${q.id}"${ch.length && pick < 0 ? ' disabled' : ''}>${ch.length && pick < 0 ? 'Choose a reward' : 'Complete'}</button></div>`);
+    }
+    for (const q of open) cards.push(`<div class="qcard${q.main ? ' main' : ''}"><div class="qh">${q.main ? '<span class="tag">Story</span>' : ''}${esc(q.title)} <small>Lv ${q.lv}</small></div>` +
+      q.text.map((t) => `<p class="say">${esc(t)}</p>`).join('') + objHtml(q) + `<p class="qwhere">${esc(q.where)}</p>` + rewardHtml(q) +
+      `<button class="btn primary" type="button" data-accept="${q.id}">Accept</button></div>`);
+    for (const q of prog) cards.push(`<div class="qcard prog"><div class="qh">${esc(q.title)}</div>${objHtml(q, qs.a[q.id])}<p class="qwhere">${esc(q.where)}</p></div>`);
+    if (!cards.length) cards.push(`<p class="say idle">${esc(N.name)} ${id === 'ostra' ? 'watches the Wardstone, listening.' : 'nods at you and turns back to the fire.'}</p>`);
+    const b = $('talkBody'); b.innerHTML = cards.join('');
+    b.querySelectorAll('[data-accept]').forEach((x) => x.addEventListener('click', () => G.link.questAccept(x.dataset.accept)));
+    b.querySelectorAll('[data-turnin]').forEach((x) => x.addEventListener('click', () => G.link.questTurnIn(x.dataset.turnin, G.qpick[x.dataset.turnin] ?? 0)));
+    b.querySelectorAll('[data-pick]').forEach((x) => {
+      const q = V.QUEST[x.dataset.q], it = V.questChoices(q, L.name, L.level)[+x.dataset.pick];
+      x.addEventListener('click', () => { G.qpick[q.id] = +x.dataset.pick; renderTalk(); });
+      x.addEventListener('mouseenter', (e) => showTip(e, itemTip(it, true))); x.addEventListener('mouseleave', hideTip);
+    });
+  }
+  function renderQuestLog() {
+    const qs = G.quests, act = Object.entries(qs.a).map(([id, pr]) => [V.QUEST[id], pr]).sort((a, b) => (b[0].main ? 1 : 0) - (a[0].main ? 1 : 0));
+    const nextMain = V.QUESTS.find((q) => q.main && !qs.d.includes(q.id) && !qs.a[q.id]);
+    let h = `<p class="win-note">${qs.d.length} of ${V.QUESTS.length} quests done · story ${V.QUESTS.filter((q) => q.main && qs.d.includes(q.id)).length} / ${V.QUESTS.filter((q) => q.main).length}</p>`;
+    if (!act.length) h += '<p class="say idle">No quests right now. Look for ! over people\'s heads.</p>';
+    for (const [q, pr] of act) {
+      const ready = V.questReady(q, pr);
+      h += `<div class="qcard${q.main ? ' main' : ''}${ready ? ' ready' : ''}"><div class="qh">${q.main ? '<span class="tag">Story</span>' : ''}${esc(q.title)} <small>Lv ${q.lv}</small></div>` +
+        `<p class="say">${esc(q.text[0])}</p>${objHtml(q, pr)}<p class="qwhere">${ready ? `Return to ${esc(V.NPCS[q.to].name)}.` : esc(q.where)}</p>${rewardHtml(q)}` +
+        `<button class="btn danger sm" type="button" data-abandon="${q.id}">Abandon</button></div>`;
+    }
+    if (nextMain && !act.some(([q]) => q.main)) {
+      const lock = L.level < nextMain.lv - 3 ? ` once you reach level ${nextMain.lv - 3}` : '';
+      h += `<p class="qwhere">Next in the story: <b>${esc(nextMain.title)}</b>, from ${esc(V.NPCS[nextMain.npc].name)}${lock}.</p>`;
+    }
+    const b = $('questBody'); b.innerHTML = h;
+    b.querySelectorAll('[data-abandon]').forEach((x) => x.addEventListener('click', () => ask('Abandon this quest?', V.QUEST[x.dataset.abandon].title + ' — your progress on it is lost.', 'Abandon', null, true).then((ok) => { if (ok) G.link.questAbandon(x.dataset.abandon); })));
+  }
+
   // ---------- dungeons and parties ----------
+  $('dunLeave').addEventListener('click', () => {
+    if (!G.dun || !G.link) return;
+    if (G.self && G.self.dc) { G.link.leaveDungeon(); return; } // cleared: straight out
+    ask('Leave the dungeon?', 'The run is not finished. You can come back while your party is inside and you have lives left.', 'Leave').then((ok) => { if (ok && G.link) G.link.leaveDungeon(); });
+  });
   function updateDunBar(s) {
-    const bar = $('dunBar');
+    const bar = $('dunBar'), lb = $('dunLeave');
+    lb.hidden = !G.dun || (s.dl === 0 && !$('spectate').hidden); // (spectators have their own button)
+    if (G.dun) { lb.classList.toggle('now', !!s.dc); const t = s.dc ? 'Leave now' : 'Leave dungeon'; if (lb.textContent !== t) lb.textContent = t; }
     if (!G.dun) { bar.hidden = true; return; }
-    const D = V.DUNGEONS[G.dun.zone], M = V.DUN_MODES[G.dun.mode], n = Math.max(0, s.dl), key = `${G.dun.zone}|${G.dun.mode}|${n}|${s.dc}`;
+    const left = G.dunLeaveAt ? Math.max(0, Math.ceil((G.dunLeaveAt - performance.now()) / 1000)) : -1;
+    const D = V.DUNGEONS[G.dun.zone], M = V.DUN_MODES[G.dun.mode], n = Math.max(0, s.dl), key = `${G.dun.zone}|${G.dun.mode}|${n}|${s.dc}|${left}`;
     bar.hidden = false;
     if (bar.dataset.k === key) return; bar.dataset.k = key;
     bar.innerHTML = `<b>${esc(D.name)}</b><span style="color:${M.color}">${M.name}</span><span class="hearts" title="Lives left">${'♥'.repeat(n)}<i>${'♥'.repeat(Math.max(0, V.DUN_LIVES - n))}</i></span>` +
-      (s.dc ? '<span class="clr">Cleared · exit at the entrance</span>' : '');
+      (s.dc ? `<span class="clr">Cleared · ${left >= 0 ? `returning in ${left}s` : 'exit at the entrance'}</span>` : '');
   }
   function renderDungeon() {
     const z = G.gateZ, D = V.DUNGEONS[z]; if (!D) return;
@@ -1865,7 +1979,8 @@
   $('giveSlot').innerHTML = V.SLOT_NAME.map((n, i) => `<option value="${i}">${n}</option>`).join('');
   $('giveRarity').innerHTML = V.RARITY.map((r, i) => `<option value="${i}"${i === 4 ? ' selected' : ''}>${r.name}</option>`).join('');
   $('giveWho').innerHTML = '<option value="">Yourself</option>';
-  const fillBases = () => { const sl = +$('giveSlot').value; $('giveBase').innerHTML = '<option value="">Any type</option>' + V.ITEM_BASES[sl].map((b) => `<option>${b}</option>`).join('')
+  const fillBases = () => { const sl = +$('giveSlot').value; $('giveBase').innerHTML = '<option value="">Nearest to the level and rarity</option>' // every item in the game, by name
+    + V.CATALOG.filter((d) => d.s === sl).map((d) => `<option value="k:${d.k}">${esc(d.n)} · ${V.RARITY[d.r].name} · Lv ${d.lv}</option>`).join('')
     + Object.values(V.UNIQUES).filter((u) => u.s === sl).map((u) => `<option value="u:${u.key}">★ ${esc(u.name)}</option>`).join(''); };
   fillBases(); $('giveSlot').addEventListener('change', fillBases);
   const giveArgs = () => { const who = $('giveWho').value; return { pid: who ? +who : undefined, slot: +$('giveSlot').value, rarity: +$('giveRarity').value, level: +$('giveLevel').value || L.level, base: $('giveBase').value }; };
@@ -2130,16 +2245,23 @@
       g.beginPath(); g.arc(x, y, 6.5, 0, Math.PI * 2); g.fillStyle = '#2a1048'; g.fill(); g.lineWidth = 2.5; g.strokeStyle = '#c58bff'; g.stroke();
       label(V.DUNGEONS[z].name, x, y - 15, '#e0c8ff', small);
     }
+    for (const n of G.qnpcs) { // quest givers: gold ! for something new, ? to turn in
+      const [x, y] = at(n.x, n.y), st = npcState(n.id);
+      diamond(x, y, 5.5, st === 'open' || st === 'ready' ? '#ffd84a' : '#c9b98a');
+      if (st === 'open' || st === 'ready') label(st === 'ready' ? '?' : '!', x, y - 14, '#ffd84a', '800 15px Inter, system-ui, sans-serif');
+      label(n.name, x, y + 14, '#f3e3b0', small);
+    }
     // you
     { const [px, py] = at(L.x, L.y); g.beginPath(); g.arc(px, py, 10, 0, Math.PI * 2); g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 2; g.stroke(); circle(px, py, 6, '#ffffff'); g.beginPath(); g.arc(px, py, 3.6, 0, Math.PI * 2); g.fillStyle = glow(L.cls); g.fill(); }
     // legend
-    const lg = [['you', 'You'], ['own', 'Your trainer'], ['oth', 'Other trainers'], ['board', 'Bounty board'], ['boss', 'Boss'], ['dun', 'Dungeon (once found)']];
+    const lg = [['you', 'You'], ['quest', 'Quest giver'], ['own', 'Your trainer'], ['oth', 'Other trainers'], ['board', 'Bounty board'], ['boss', 'Boss'], ['dun', 'Dungeon (once found)']];
     const lh = 19, bw = 168, bh = lg.length * lh + 14, bx = 10, by = 10; // top-left: always open sky beside the map's diamond
     g.fillStyle = 'rgba(10,8,15,.82)'; g.fillRect(bx, by, bw, bh); g.strokeStyle = '#2a2236'; g.lineWidth = 1; g.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
     g.textAlign = 'left';
     lg.forEach(([k, t], i) => {
       const x = bx + 16, y = by + 14 + i * lh;
       if (k === 'you') { circle(x, y, 5, '#ffffff'); g.beginPath(); g.arc(x, y, 3, 0, Math.PI * 2); g.fillStyle = glow(L.cls); g.fill(); }
+      else if (k === 'quest') diamond(x, y, 5.5, '#ffd84a');
       else if (k === 'own') diamond(x, y, 5.5, '#9be38a'); else if (k === 'oth') diamond(x, y, 4.5, '#5d8a55');
       else if (k === 'board') { g.fillStyle = '#e2c781'; g.fillRect(x - 4, y - 4, 8, 8); g.strokeStyle = '#05040a'; g.lineWidth = 2; g.strokeRect(x - 4, y - 4, 8, 8); }
       else if (k === 'boss') circle(x, y, 5, '#ff9a2e');
@@ -2330,6 +2452,7 @@
     mini.width = G.mini.width; mini.height = G.mini.height;
   }
   function enterMap(m) {
+    L.x = m.x; L.y = m.y; L.seq = m.seq; L.atk = null; L.dodge = null; L.move = null; G.self = null; G.dunLeaveAt = 0; // your position first, whatever else happens
     useMap(m.dun);
     G.foes = foesFrom(m.foes);
     const self = G.players.get(G.me);
@@ -2356,6 +2479,7 @@
     G.parts = []; G.rings = []; G.texts = []; G.ghosts = []; G.decals = []; G.bolts = []; G.self = null; G.target = null;
     G.snapDt = G.mode === 'online' ? 0.1 : 0.016; G.lastSnap = 0;
     useMap(null); G.party = null; G.invites = new Map(); renderParty();
+    G.quests = V.cleanQuests(w.quests); G.qkey = ''; G.talkNpc = null; G.qpick = {}; G.epoch = 0; G.dunLeaveAt = 0;
     G.foes = foesFrom(w.foes);
     L.x = w.x; L.y = w.y; L.z = 0; L.seq = w.seq; L.atk = null; L.dodge = null; L.move = null; L.row = 0; L.anim = 'idle';
     L.cls = w.cls; L.name = w.name; L.level = w.level; G.talents = w.talents || {}; G.inv = w.inv || []; G.eq = w.eq || {}; G.loot = new Map();
@@ -2492,6 +2616,7 @@
     G.mini = V.paintMinimap(G.map);
     mini.width = G.mini.width; mini.height = G.mini.height;
     G.npcs = Object.keys(V.TRAINERS).map((cls, i) => { const [x, y] = V.trainerPos(cls), T = V.TRAINERS[cls]; return { x, y, cls, name: T.name, camp: T.camp, title: `<${G.meta.heroes[cls].name} Trainer>`, row: 0, phase: i * 0.37 }; });
+    G.qnpcs = Object.keys(V.NPCS).map((id, i) => { const [x, y] = V.npcPos(id), N = V.NPCS[id]; return { id, x, y, cls: N.look, name: N.name, title: N.title, camp: N.camp, row: 0, phase: i * 0.53 }; });
     G.over = { map: G.map, ground: G.ground, mini: G.mini, npcs: G.npcs };
     const [ox, oy] = V.toWorld(V.C, V.C);
     G.ground.warm(ox - 520, oy - 360, 1040, 720);

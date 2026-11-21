@@ -81,7 +81,8 @@
       if (t === T.WATER || t === T.ABYSS) solid[k] = 1;
     }
     // trainer camps: a patch of packed earth that is never water
-    const camps = Object.keys(V.TRAINERS || {}).filter((cls) => !V.TRAINERS[cls].town).map((cls) => ({ cls, tx: C + V.TRAINERS[cls].at[0], ty: C + V.TRAINERS[cls].at[1] }));
+    const camps = Object.keys(V.TRAINERS || {}).filter((cls) => !V.TRAINERS[cls].town).map((cls) => ({ cls, tx: C + V.TRAINERS[cls].at[0], ty: C + V.TRAINERS[cls].at[1] }))
+      .concat((V.OUTPOSTS || []).map((id) => { const [tx, ty] = V.npcTile(id); return { cls: id, tx, ty }; })); // quest outposts are camps too
     const campDist = (tx, ty) => camps.reduce((m, c) => Math.min(m, Math.hypot(tx - c.tx, ty - c.ty)), 999);
     const gates = (V.DUNGEONS || []).map((d, z) => d && V.gateTile(z)).filter(Boolean);
     const gateDist = (tx, ty) => gates.reduce((m, g) => Math.min(m, Math.hypot(tx - g[0], ty - g[1])), 999);

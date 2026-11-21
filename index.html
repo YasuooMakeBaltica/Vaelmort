@@ -151,6 +151,8 @@
   .micro { position: absolute; right: max(10px, env(safe-area-inset-right, 0px)); bottom: calc(10px + env(safe-area-inset-bottom, 0px)); display: flex; gap: 5px; pointer-events: auto; }
   .micro button { position: relative; display: grid; justify-items: center; gap: 2px; padding: 6px 8px 5px; min-width: 52px; background: var(--panel); border: 1px solid var(--edge); border-radius: 3px; cursor: pointer; font: 600 11px var(--body); color: var(--muted); }
   .micro button:hover { color: var(--ink); border-color: var(--edge-hi); }
+  /* not enough room beside the hotbar: show just the keys (the name stays in the tooltip) */
+  @media (max-width: 1480px) { .micro button { font-size: 0; min-width: 34px; padding: 6px 6px 5px; } .micro button kbd { font-size: 11px; } }
   .micro button .badge { position: absolute; top: -6px; right: -6px; min-width: 16px; padding: 1px 4px; font: 700 11px var(--pixel); color: #1a1206; background: var(--gold); border-radius: 8px; border: 1px solid #05040a; }
 
   #death { position: absolute; inset: 0; display: grid; place-items: center; background: radial-gradient(ellipse at center, rgba(40,0,6,.25), rgba(7,6,11,.75) 70%); pointer-events: none; }
@@ -214,6 +216,29 @@
   .party .row input { flex: 1; }
   #chatLog li.party { color: #8fd0ff; }
   @media (max-width: 560px) { .dungeon .modes { grid-template-columns: 1fr; } #partyFrames { width: 140px; } }
+  .talkhead { display: flex; align-items: center; gap: 10px; }
+  .talkhead canvas { width: 48px; height: 48px; image-rendering: pixelated; background: #0c0a12; border: 1px solid var(--edge); }
+  .talkhead h2 { margin: 0; } .talkhead small { color: #9a90a8; font-size: 12px; } .talkhead > div { flex: 1; }
+  .talk { max-height: min(64vh, 560px); overflow-y: auto; display: grid; gap: 10px; }
+  .qcard { background: #120e19; border: 1px solid #2a2236; padding: 10px 12px; display: grid; gap: 6px; }
+  .qcard.main { border-color: #5a4a26; }
+  .qcard.ready { border-color: #ffd84a; box-shadow: inset 0 0 0 1px rgba(255,216,74,.25); }
+  .qcard .qh { font: 700 15px var(--body); color: #f1ead8; } .qcard .qh small { color: #9a90a8; font-weight: 600; }
+  .qcard .tag { font: 700 10px var(--body); letter-spacing: .08em; text-transform: uppercase; color: #ffd84a; border: 1px solid #5a4a26; padding: 1px 5px; margin-right: 7px; vertical-align: 2px; }
+  .qcard .say { margin: 0; font-style: italic; color: #d8cfbd; line-height: 1.45; }
+  .say.idle { color: #9a90a8; }
+  .qobj { margin: 2px 0 0; padding-left: 18px; color: #e6dcc6; font-size: 13px; } .qobj li.ok { color: #9be38a; }
+  .qwhere { margin: 0; font-size: 12px; color: #9a90a8; }
+  .qrew { font-size: 13px; color: #e2c781; } .qrew b { color: #f1ead8; margin-right: 4px; }
+  .qpick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .qitem { text-align: left; background: #0c0a12; border: 1px solid #2a2236; padding: 7px; cursor: pointer; display: grid; gap: 3px; color: var(--rc); }
+  .qitem b { font: 700 12.5px var(--body); } .qitem small { color: #9a90a8; font-size: 11px; }
+  .qitem.on { border-color: var(--rc); box-shadow: inset 0 0 0 1px var(--rc); }
+  .qcard .btn { justify-self: start; }
+  .bq.quest .bn { color: #f1ead8; } .bq.quest.main .bn { color: #ffd84a; } .bq.quest .bt { font-size: 12px; }
+  @media (max-width: 560px) { .qpick { grid-template-columns: 1fr; } }
+  #dunLeave { position: absolute; left: 50%; bottom: calc(158px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); pointer-events: auto; padding: 7px 16px; }
+  #dunLeave.now { background: linear-gradient(#f2d27a, #c9a24a); color: #1a1208; border-color: #ffe7a0; box-shadow: 0 0 14px rgba(255,216,106,.45); }
   #castbar { position: absolute; left: 50%; bottom: calc(160px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: 240px; display: grid; gap: 4px; text-align: center; font: 700 12px var(--body); color: #d2ffee; text-shadow: 0 1px 2px #000; pointer-events: none; }
   #castbar .bar > i { width: 0; background: linear-gradient(#88f2c3, #3ccf97 55%, #1c936d); transition: none; }
   #starr { position: absolute; inset: 0; z-index: 40; display: grid; place-items: center; pointer-events: none; text-align: center; padding: 16px;
@@ -393,13 +418,14 @@
       </div>
       <div id="dunBar" class="panel" hidden></div>
       <div class="panel tracker" id="tracker" hidden>
-        <h3>Bounties</h3>
+        <h3>Journal</h3>
         <div id="bList"></div>
       </div>
     </aside>
 
     <div id="starr" hidden>A starr is born</div>
     <div id="announce" hidden><p></p><small></small></div>
+    <button type="button" id="dunLeave" class="btn secondary" hidden>Leave dungeon</button>
     <div id="castbar" hidden><span>Returning to Vaelmort Gate</span><div class="bar"><i id="castFill"></i></div></div>
     <div id="prompt" hidden><kbd>E</kbd><span id="promptText"></span></div>
     <div id="banner"><div id="zoneName"></div><div id="zoneSub"></div><div id="zoneLvl"></div></div>
@@ -422,6 +448,7 @@
       <button type="button" id="btnInv"><kbd>I</kbd>Bags</button>
       <button type="button" id="btnTalents"><kbd>N</kbd>Talents<span class="badge" id="tpBadge" hidden>0</span></button>
       <button type="button" id="btnMap"><kbd>M</kbd>Map</button>
+      <button type="button" id="btnQuests"><kbd>J</kbd>Quests</button>
       <button type="button" id="btnParty"><kbd>P</kbd>Party</button>
       <button type="button" id="btnAdmin" hidden><kbd>F8</kbd>Admin</button>
       <button type="button" id="btnMenu"><kbd>Esc</kbd>Menu</button>
@@ -460,6 +487,14 @@
   <section class="window board" id="winDungeon" hidden aria-label="Dungeon">
     <div class="win-head"><h2 id="dunTitle">Dungeon</h2><button class="x" type="button" data-close aria-label="Close">✕</button></div>
     <div class="win-body dungeon" id="dunBody"></div>
+  </section>
+  <section class="window board" id="winTalk" hidden aria-label="Dialogue">
+    <div class="win-head talkhead"><canvas id="talkPortrait" width="48" height="48"></canvas><div><h2 id="talkName">Someone</h2><small id="talkTitle"></small></div><button class="x" type="button" data-close aria-label="Close">✕</button></div>
+    <div class="win-body talk" id="talkBody"></div>
+  </section>
+  <section class="window board" id="winQuests" hidden aria-label="Quest log">
+    <div class="win-head"><h2>Quests</h2><button class="x" type="button" data-close aria-label="Close">✕</button></div>
+    <div class="win-body talk" id="questBody"></div>
   </section>
   <section class="window board" id="winParty" hidden aria-label="Party">
     <div class="win-head"><h2>Party</h2><button class="x" type="button" data-close aria-label="Close">✕</button></div>
@@ -544,6 +579,7 @@
         <div><dt><kbd>I</kbd></dt><dd>Inventory · click loot to pick it up</dd></div>
         <div><dt><kbd>Space</kbd></dt><dd>Dodge roll</dd></div>
         <div><dt><kbd>C</kbd> <kbd>N</kbd> <kbd>M</kbd></dt><dd>Character · Talents · Map</dd></div>
+        <div><dt><kbd>J</kbd></dt><dd>Quest log (talk to people with ! over their heads)</dd></div>
         <div><dt><kbd>T</kbd></dt><dd>Return to Vaelmort Gate (hold still 3 s, 60 s cooldown)</dd></div>
         <div><dt><kbd>P</kbd></dt><dd>Party (right-click a player to invite; /p for party chat)</dd></div>
       </dl>
@@ -568,6 +604,7 @@
 
 <script src="src/world.js"></script>
 <script src="src/shared.js"></script>
+<script src="src/quests.js"></script>
 <script src="src/icons.js"></script>
 <script src="src/audio.js"></script>
 <script src="src/game.js"></script>

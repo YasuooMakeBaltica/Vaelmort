@@ -10,6 +10,7 @@ globalThis.window = globalThis;
 const ROOT = path.join(__dirname, '..');
 require(path.join(ROOT, 'src/world.js'));
 require(path.join(ROOT, 'src/shared.js'));
+require(path.join(ROOT, 'src/quests.js'));
 require(path.join(ROOT, 'src/sim.js'));
 const V = globalThis.V;
 
@@ -127,9 +128,9 @@ async function play(ws, c, charId) {
   const ch = (c.chars || []).find((x) => x.id === charId);
   if (!ch) { send(ws, { t: 'error', msg: 'That character no longer exists.' }); return; }
   if (online() >= MAX_PLAYERS) { send(ws, { t: 'error', msg: 'The realm is full right now. Try again soon.' }); return; }
-  c.char = ch; c.pid = nextPid++; c.foeCache = new Map(); c.sim = world;
+  c.char = ch; c.pid = nextPid++; c.foeCache = new Map(); c.sim = world; c.epoch = 0;
   const p = world.addPlayer(c.pid, Object.assign({}, ch, { admin: !!c.acct.admin }));
-  send(ws, { t: 'welcome', id: c.pid, name: p.name, cls: p.cls, level: p.level, talents: p.talents, refunded: p.refunded ? 1 : 0, inv: p.bag, eq: p.eq, x: p.x, y: p.y, seq: p.seq, foes: world.foeList() });
+  send(ws, { t: 'welcome', id: c.pid, name: p.name, cls: p.cls, level: p.level, talents: p.talents, refunded: p.refunded ? 1 : 0, inv: p.bag, eq: p.eq, x: p.x, y: p.y, seq: p.seq, foes: world.foeList(), quests: p.quests, found: p.found });
   if (p.refunded) saveChar(c); // the skill-web refund happens once
   console.log(`+ ${p.name} (${c.acct.name}, ${online()} online)`);
 }
@@ -293,8 +294,8 @@ function moveTo(c, dest, at) {
   c.sim.removePlayer(c.pid, true);
   const p = dest.addPlayer(c.pid, Object.assign({}, c.char, { admin: !!c.acct.admin }), true);
   if (at) { p.x = at[0]; p.y = at[1]; }
-  c.sim = dest; c.foeCache = new Map();
-  if (ws) send(ws, { t: 'map', dun: dest.dun ? { zone: dest.dun.zone, mode: dest.dun.mode } : null, x: p.x, y: p.y, seq: p.seq, foes: dest.foeList() });
+  c.sim = dest; c.foeCache = new Map(); c.epoch = (c.epoch || 0) + 1;
+  if (ws) send(ws, { t: 'map', w: c.epoch, dun: dest.dun ? { zone: dest.dun.zone, mode: dest.dun.mode } : null, x: p.x, y: p.y, seq: p.seq, foes: dest.foeList() });
 }
 function closeInstance(d) {
   instances.delete(d.id);
@@ -344,6 +345,10 @@ function dungeonTick(now) {
     if (s.wiped && !d.endT) {
       d.endT = now + 4500;
       for (const pid of s.players.keys()) { const [w] = clientByPid(pid); if (w) sysTo(w, `Your party has fallen. ${V.DUNGEONS[d.zone].name} casts you out.`); }
+    }
+    if (s.cleared && !d.endT) { // cleared: everyone goes home in 10 seconds
+      d.endT = now + 10000;
+      for (const pid of s.players.keys()) { const [w] = clientByPid(pid); if (w) send(w, { t: 'dleave', s: 10 }); }
     }
     if (d.endT && now > d.endT) {
       for (const pid of [...s.players.keys()]) { const mc = cOf(pid); if (mc) leaveDungeon(mc); }
@@ -396,6 +401,9 @@ wss.on('connection', (ws) => {
       else if (m.t === 'discard' && Number.isInteger(m.i)) { if (c.sim.discard(c.pid, m.i)) saveChar(c); }
       else if (m.t === 'trash' && (Number.isInteger(m.i) || V.SLOTS.includes(m.slot))) { if (c.sim.trash(c.pid, m.i, V.SLOTS.includes(m.slot) ? m.slot : null)) saveChar(c); }
       else if (m.t === 'recall') c.sim.recall(c.pid);
+      else if (m.t === 'qaccept' && typeof m.q === 'string') { if (c.sim.questAccept(c.pid, m.q)) saveChar(c); }
+      else if (m.t === 'qturnin' && typeof m.q === 'string') { if (c.sim.questTurnIn(c.pid, m.q, m.pick | 0)) saveChar(c); }
+      else if (m.t === 'qabandon' && typeof m.q === 'string') { if (c.sim.questAbandon(c.pid, m.q)) saveChar(c); }
       else if (m.t === 'nuke') { if (c.sim.nuke(c.pid)) console.log(`${c.char.name} nuked the map`); }
       else if (m.t === 'trial') { if (c.sim.startTrial(c.pid)) saveChar(c); }
       else if (m.t === 'evolve' && typeof m.cls === 'string') { if (c.sim.evolve(c.pid, m.cls)) { saveChar(c); console.log(`${c.char.name} evolved into ${m.cls}`); } }
@@ -456,7 +464,7 @@ setInterval(() => {
     if (!c.pid || !c.sim) continue;
     const v = c.sim.view(c.pid, c.foeCache, c.sim.pending);
     if (!v) continue;
-    v.t = 's'; v.n = n;
+    v.t = 's'; v.n = n; v.w = c.epoch; // which world this view is from
     send(ws, v);
   }
   for (const s of sims()) s.pending = [];

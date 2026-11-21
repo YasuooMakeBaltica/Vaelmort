@@ -110,6 +110,7 @@
       // characters from before the skill web keep their level but get every point back (once)
       p.refunded = !Array.isArray(ch.bar) && level > 1;
       const gear = V.cleanGear(ch.gear); p.bag = gear.inv; p.eq = gear.eq; // (p.inv is the invulnerability timer)
+      p.quests = V.cleanQuests(ch.quests);
       p.found = Array.isArray(ch.found) ? [...new Set(ch.found.filter((z) => Number.isInteger(z) && V.DUNGEONS[z]))] : [];
       p.trial = ch.trial && typeof ch.trial === 'object' ? { n: Math.max(0, ch.trial.n | 0), done: !!ch.trial.done } : null;
       p.bar = V.cleanBar(cls, p.talents, Array.isArray(ch.bar) ? ch.bar : [CLASSES[cls].skills[0]]);
@@ -130,7 +131,7 @@
       S.fields = S.fields.filter((F) => F.owner !== pid || F.kind === 'fire');
       emit(moved ? { e: 'leave', id: pid, name: p.name, q: 1 } : { e: 'leave', id: pid, name: p.name });
     };
-    S.charData = (pid) => { const p = S.players.get(pid); return p && { level: p.level, xp: R(p.xp), kills: p.kills, talents: p.talents, bounties: p.bounties, bar: p.bar, cls: p.cls, trial: p.trial, gear: { inv: p.bag, eq: p.eq }, found: p.found }; };
+    S.charData = (pid) => { const p = S.players.get(pid); return p && { level: p.level, xp: R(p.xp), kills: p.kills, talents: p.talents, bounties: p.bounties, bar: p.bar, cls: p.cls, trial: p.trial, gear: { inv: p.bag, eq: p.eq }, found: p.found, quests: p.quests }; };
     S.learn = function (pid, node) {
       const p = S.players.get(pid);
       if (!p || !V.canLearn(p.cls, p.level, p.talents, node)) return false;
@@ -158,6 +159,53 @@
       const [tx, ty] = C.solidAt(x, y, 10) ? [x - 30, y - 10] : [x, y];
       p.x = tx; p.y = ty; correct(p);
     };
+    // ---------- quests ----------
+    // bump every active objective that test(objective) says this counts for; tell the player what moved
+    function questBump(p, test) {
+      let msg = '';
+      for (const [id, prog] of Object.entries(p.quests.a)) {
+        const q = V.QUEST[id];
+        q.obj.forEach((o, i) => {
+          const need = V.objNeed(o); if (prog[i] >= need) return;
+          const add = test(o); if (!add) return;
+          prog[i] = Math.min(need, prog[i] + add);
+          msg = (o.k === 'collect' ? 'Found: ' : '') + V.objText(o, prog[i]) + (V.questReady(q, prog) ? ` · ${q.title} is ready to turn in` : '');
+        });
+      }
+      if (msg) emit({ e: 'quests', id: p.id, q: p.quests, msg });
+    }
+    S.questAccept = function (pid, qid) {
+      const p = S.players.get(pid), q = V.QUEST[qid];
+      if (!p || !q || p.dead > 0 || S.dun) return false;
+      if (!V.nearNpc(q.npc, p.x, p.y, 60)) { emit({ e: 'nope', id: pid, why: 'far' }); return false; }
+      if (!V.questOpen(q, p.quests, p.level)) return false;
+      p.quests.a[qid] = q.obj.map((o) => (o.k === 'find' && p.found.includes(o.z) ? 1 : 0)); // already found it? that part is done
+      emit({ e: 'quests', id: pid, q: p.quests, msg: `Quest accepted: ${q.title}`, acc: qid });
+      return true;
+    };
+    S.questTurnIn = function (pid, qid, pick) {
+      const p = S.players.get(pid), q = V.QUEST[qid], prog = p && p.quests.a[qid];
+      if (!p || !q || !prog || p.dead > 0 || S.dun) return false;
+      if (!V.questReady(q, prog)) return false;
+      if (!V.nearNpc(q.to, p.x, p.y, 60)) { emit({ e: 'nope', id: pid, why: 'far' }); return false; }
+      const choices = V.questChoices(q, p.name, p.level);
+      if (choices.length) {
+        if (p.bag.length >= V.INV_SIZE) { emit({ e: 'nope', id: pid, why: 'bags' }); return false; }
+        const it = choices[Math.max(0, Math.min(choices.length - 1, pick | 0))];
+        p.bag.push(V.cleanItem(it)); emit({ e: 'inv', id: pid, inv: p.bag, eq: p.eq });
+      }
+      delete p.quests.a[qid]; p.quests.d.push(qid);
+      grantXp(p, V.questXp(q));
+      emit({ e: 'quests', id: pid, q: p.quests, msg: `Quest complete: ${q.title}`, done: qid });
+      return true;
+    };
+    S.questAbandon = function (pid, qid) {
+      const p = S.players.get(pid); if (!p || !p.quests.a[qid]) return false;
+      delete p.quests.a[qid];
+      emit({ e: 'quests', id: pid, q: p.quests, msg: `Abandoned: ${V.QUEST[qid].title}` });
+      return true;
+    };
+
     // T: return to the obelisk. 3 s standing still (moving or taking a hit breaks it), 60 s cooldown; admins go at once
     V.RECALL = { time: 3, cd: 60 };
     S.recall = function (pid) {
@@ -262,6 +310,7 @@
         p.dodgeT = DODGE_TIME + 0.05; p.cdDodge = (CLASSES[p.cls].dodgeCd || DODGE_CD) * (1 - p.mods.dodgeCdr); p.atk = null;
         emit({ e: 'dodge', id: p.id });
       }
+      if (m.seq !== p.seq && p.dead <= 0 && S.t - (p.resyncT || -9) > 1) { p.resyncT = S.t; correct(p); return; } // out of step: put the client back where we have them
       if (m.seq !== p.seq || !Number.isFinite(m.x) || !Number.isFinite(m.y) || p.dead > 0) return;
       if (opts.validate) {
         const dt = Math.min(1, Math.max(0, S.t - p.lastPosT));
@@ -312,7 +361,10 @@
     }
     function killFoe(f, killer) {
       f.dead = true; f.respawn = f.isAdd || S.dun ? Infinity : f.def.boss ? 90 : 15; f.deathMark = null; f.poison = null;
-      if (S.dun && f === S.boss && !S.cleared) { S.cleared = true; emit({ e: 'dclear', zone: S.dun.zone, mode: S.dun.mode }); }
+      if (S.dun && f === S.boss && !S.cleared) {
+        S.cleared = true; emit({ e: 'dclear', zone: S.dun.zone, mode: S.dun.mode });
+        for (const q of S.players.values()) questBump(q, (o) => (o.k === 'dungeon' && o.z === S.dun.zone ? 1 : 0)); // everyone inside gets the clear
+      }
       emit({ e: 'kill', f: f.id, by: killer ? killer.id : -1 });
       if (f.adds) for (const a of f.adds) if (!a.dead) { a.dead = true; emit({ e: 'kill', f: a.id, by: -1 }); }
       const credited = new Set();
@@ -323,6 +375,7 @@
       for (const p of credited) {
         grantXp(p, V.foeXp(f.level, f.elite, f.def.boss) * V.xpScale(p.level, f.level) * (DM ? DM.xp : 1));
         bountyProgress(p, f);
+        questBump(p, (o) => ((o.k === 'kill' && o.foes.includes(f.type)) || (o.k === 'boss' && o.foe === f.type) || (o.k === 'collect' && o.foes.includes(f.type) && Math.random() < o.ch) ? 1 : 0));
         if (p.trial && !p.trial.done && f.level >= V.EVOLVE.minFoeLevel && !f.isAdd) {
           p.trial.n++;
           if (p.trial.n >= V.EVOLVE.kills) { p.trial.done = true; emit({ e: 'trial', id: p.id, done: 1 }); }
@@ -350,7 +403,8 @@
       // dungeons: the harder the mode, the better the rolls (lb), and the boss drops one more item per mode
       const lb = DM ? DM.loot : 0, odds = 1 + lb * 1.5;
       const boss = !!f.def.boss, n = boss ? 3 + (S.dun ? S.dun.mode : 0) : f.elite ? (Math.random() < 0.4 ? 1 + (Math.random() < 0.3 ? 1 : 0) : 0) : (Math.random() < (f.isAdd ? 0.03 : 0.07) ? 1 : 0);
-      for (let i = 0; i < n; i++) lootAt(V.makeItem(f.level, boss ? Math.max(2, V.rollRarity(Math.random, 2 + lb)) : V.rollRarity(Math.random, (f.elite ? 1 : 0) + lb)), f.x, f.y);
+      const zone = S.dun ? S.dun.zone : f.zone; // which zone's catalog: the item is fixed, only which one drops is rolled
+      for (let i = 0; i < n; i++) lootAt(V.catDrop(zone, f.level, boss ? Math.max(2, V.rollRarity(Math.random, 2 + lb)) : V.rollRarity(Math.random, (f.elite ? 1 : 0) + lb)), f.x, f.y);
       // exclusive boss drops, each rolled on its own; zone treasures from that zone's elites
       if (boss) for (const [key, pct] of V.BOSS_LOOT[f.type] || []) if (Math.random() * 100 < pct * odds) lootAt(V.makeUnique(key, f.level), f.x, f.y);
       if (f.elite && !boss) for (const [z, key, pct] of V.ZONE_LOOT) if (z === f.zone && Math.random() * 100 < pct * odds) lootAt(V.makeUnique(key, f.level), f.x, f.y);
@@ -399,7 +453,10 @@
       const p = S.players.get(pid);
       if (!p) return null;
       if (p.bag.length >= V.INV_SIZE) return 'full';
-      let it = typeof base === 'string' && base.startsWith('u:') && V.UNIQUES[base.slice(2)] ? V.makeUnique(base.slice(2), level) : V.makeItem(level, rarity, Math.random, slot, base);
+      let it = typeof base === 'string' && base.startsWith('u:') && V.UNIQUES[base.slice(2)] ? V.makeUnique(base.slice(2), level)
+        : typeof base === 'string' && base.startsWith('k:') && V.CAT[base.slice(2)] ? V.catItem(base.slice(2)) // a catalog piece by name
+        : custom ? V.makeItem(level, rarity, Math.random, slot, base) // an admin's own custom item
+        : V.catDrop(V.zoneForLevel(level), level, rarity, Math.random, slot);
       if (custom) it = V.cleanItem(Object.assign(it, { n: custom.name || it.n, st: custom.stats && Object.keys(custom.stats).length ? custom.stats : it.st }));
       p.bag.push(it); invEvent(p);
       emit({ e: 'picked', id: pid, name: p.name, n: it.n, r: it.r, x: r1(p.x), y: r1(p.y) });
@@ -872,7 +929,11 @@
         else if ((p.recall.t -= dt) <= 0) { p.recallCd = S.t + V.RECALL.cd; p.recall.home(); }
       }
       p.zone = zoneAt(p.x, p.y);
-      if (!S.dun) { const g = V.nearGate(p.x, p.y, 40); if (g && !p.found.includes(g)) { p.found.push(g); emit({ e: 'found', id: p.id, z: g }); } } // stumbled on a dungeon
+      if (!S.dun) { const g = V.nearGate(p.x, p.y, 40); if (g && !p.found.includes(g)) { p.found.push(g); emit({ e: 'found', id: p.id, z: g }); questBump(p, (o) => (o.k === 'find' && o.z === g ? 1 : 0)); } } // stumbled on a dungeon
+      if (!S.dun && (p.reachT = (p.reachT || 0) - dt) <= 0) { // walked up to a boss's lair?
+        p.reachT = 0.5;
+        questBump(p, (o) => { if (o.k !== 'reach') return 0; const b = S.foes.find((q) => q.type === o.boss && q.def.boss); return b && gdist(p.x, p.y, b.hx, b.hy) < 420 ? 1 : 0; });
+      }
       const rs = res(p);
       if (rs.regen) p.res = Math.min(p.resMax, p.res + rs.regen * (1 + p.mods.resGen) * (p.cls === 'lightborn' ? 2 : p.cls === 'mage' ? 1.5 : 1) * dt);
       else if (S.t - p.lastCombat > 5) p.res = Math.max(0, p.res - 5 * dt);
@@ -1288,7 +1349,7 @@
       if (e.id !== undefined) { const p = S.players.get(e.id); return p ? [p.x, p.y] : null; }
       return null;
     }
-    const PRIVATE = new Set(['xp', 'bounty', 'nope', 'talents', 'trial', 'inv', 'found']); // casts are public so nearby players hear them
+    const PRIVATE = new Set(['xp', 'bounty', 'nope', 'talents', 'trial', 'inv', 'found', 'quests']); // casts are public so nearby players hear them
     S.view = function (pid, cache, events) {
       const me = S.players.get(pid);
       if (!me) return null;

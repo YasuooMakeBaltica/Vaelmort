@@ -67,6 +67,7 @@ function pgBackend(url) {
       await q('alter table characters add column if not exists trial text'); // base class evolution trial progress
       await q('alter table characters add column if not exists gear text'); // inventory and equipment
       await q('alter table characters add column if not exists found text'); // dungeon entrances this character has discovered
+      await q('alter table characters add column if not exists quests text'); // quest progress: { a: active, d: done }
       await q('alter table accounts add column if not exists banned boolean not null default false');
     },
     async getAccount(key) {
@@ -94,8 +95,8 @@ function pgBackend(url) {
       return r.rows[0] ? r.rows[0].key : null;
     },
     async listChars(key) {
-      const r = await q('select id, name, cls, level, xp, kills, talents, bounties, bar, trial, gear, found from characters where account = $1 order by id', [key]);
-      return r.rows.map((c) => ({ ...c, talents: parse(c.talents), bounties: parse(c.bounties), bar: c.bar ? parse(c.bar) : null, trial: c.trial ? parse(c.trial) : null, gear: c.gear ? parse(c.gear) : null, found: c.found ? parse(c.found) : [] }));
+      const r = await q('select id, name, cls, level, xp, kills, talents, bounties, bar, trial, gear, found, quests from characters where account = $1 order by id', [key]);
+      return r.rows.map((c) => ({ ...c, talents: parse(c.talents), bounties: parse(c.bounties), bar: c.bar ? parse(c.bar) : null, trial: c.trial ? parse(c.trial) : null, gear: c.gear ? parse(c.gear) : null, found: c.found ? parse(c.found) : [], quests: c.quests ? parse(c.quests) : null }));
     },
     async charNameTaken(nameKey) { return (await q('select 1 from characters where name_key = $1', [nameKey])).rowCount > 0; },
     async createChar(key, name, cls, nameKey) {
@@ -105,8 +106,8 @@ function pgBackend(url) {
     },
     async deleteChar(key, id) { return (await q('delete from characters where id = $1 and account = $2', [id, key])).rowCount > 0; },
     async saveChar(id, d) {
-      await q('update characters set level = $2, xp = $3, kills = $4, talents = $5, bounties = $6, bar = $7, cls = $8, trial = $9, gear = $10, found = $11 where id = $1',
-        [id, d.level, d.xp, d.kills, JSON.stringify(d.talents || {}), JSON.stringify(d.bounties || {}), d.bar ? JSON.stringify(d.bar) : null, d.cls, d.trial ? JSON.stringify(d.trial) : null, JSON.stringify(d.gear || null), JSON.stringify(d.found || [])]);
+      await q('update characters set level = $2, xp = $3, kills = $4, talents = $5, bounties = $6, bar = $7, cls = $8, trial = $9, gear = $10, found = $11, quests = $12 where id = $1',
+        [id, d.level, d.xp, d.kills, JSON.stringify(d.talents || {}), JSON.stringify(d.bounties || {}), d.bar ? JSON.stringify(d.bar) : null, d.cls, d.trial ? JSON.stringify(d.trial) : null, JSON.stringify(d.gear || null), JSON.stringify(d.found || []), JSON.stringify(d.quests || null)]);
     },
   };
 }
