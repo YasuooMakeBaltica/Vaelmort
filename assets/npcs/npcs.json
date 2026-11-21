@@ -1,0 +1,287 @@
+{
+ "npcs": {
+  "ostra": {
+   "glow": "#9cf5d2",
+   "animations": {
+    "idle": {
+     "file": "sheets/npc_ostra_idle.png",
+     "frames": 8,
+     "fps": 6,
+     "loop": true
+    },
+    "talk": {
+     "file": "sheets/npc_ostra_talk.png",
+     "frames": 8,
+     "fps": 8,
+     "loop": true
+    }
+   }
+  },
+  "hesk": {
+   "glow": "#a6ec4f",
+   "animations": {
+    "idle": {
+     "file": "sheets/npc_hesk_idle.png",
+     "frames": 8,
+     "fps": 6,
+     "loop": true
+    },
+    "talk": {
+     "file": "sheets/npc_hesk_talk.png",
+     "frames": 8,
+     "fps": 8,
+     "loop": true
+    }
+   }
+  },
+  "maudlin": {
+   "glow": "#8fd0c0",
+   "animations": {
+    "idle": {
+     "file": "sheets/npc_maudlin_idle.png",
+     "frames": 8,
+     "fps": 6,
+     "loop": true
+    },
+    "talk": {
+     "file": "sheets/npc_maudlin_talk.png",
+     "frames": 8,
+     "fps": 8,
+     "loop": true
+    }
+   }
+  },
+  "varro": {
+   "glow": "#ffb23d",
+   "animations": {
+    "idle": {
+     "file": "sheets/npc_varro_idle.png",
+     "frames": 8,
+     "fps": 6,
+     "loop": true
+    },
+    "talk": {
+     "file": "sheets/npc_varro_talk.png",
+     "frames": 8,
+     "fps": 8,
+     "loop": true
+    }
+   }
+  },
+  "gyle": {
+   "glow": "#d9c48a",
+   "animations": {
+    "idle": {
+     "file": "sheets/npc_gyle_idle.png",
+     "frames": 8,
+     "fps": 6,
+     "loop": true
+    },
+    "talk": {
+     "file": "sheets/npc_gyle_talk.png",
+     "frames": 8,
+     "fps": 8,
+     "loop": true
+    }
+   }
+  },
+  "ilke": {
+   "glow": "#8fe0ff",
+   "animations": {
+    "idle": {
+     "file": "sheets/npc_ilke_idle.png",
+     "frames": 8,
+     "fps": 6,
+     "loop": true
+    },
+    "talk": {
+     "file": "sheets/npc_ilke_talk.png",
+     "frames": 8,
+     "fps": 8,
+     "loop": true
+    }
+   }
+  },
+  "sael": {
+   "glow": "#d29bff",
+   "animations": {
+    "idle": {
+     "file": "sheets/npc_sael_idle.png",
+     "frames": 8,
+     "fps": 6,
+     "loop": true
+    },
+    "talk": {
+     "file": "sheets/npc_sael_talk.png",
+     "frames": 8,
+     "fps": 8,
+     "loop": true
+    }
+   }
+  },
+  "aldric": {
+   "glow": "#8fb0e0",
+   "animations": {
+    "idle": {
+     "file": "sheets/npc_aldric_idle.png",
+     "frames": 8,
+     "fps": 6,
+     "loop": true
+    },
+    "talk": {
+     "file": "sheets/npc_aldric_talk.png",
+     "frames": 8,
+     "fps": 8,
+     "loop": true
+    }
+   }
+  },
+  "ilsa": {
+   "glow": "#8f9cff",
+   "animations": {
+    "idle": {
+     "file": "sheets/npc_ilsa_idle.png",
+     "frames": 8,
+     "fps": 6,
+     "loop": true
+    },
+    "talk": {
+     "file": "sheets/npc_ilsa_talk.png",
+     "frames": 8,
+     "fps": 8,
+     "loop": true
+    }
+   }
+  },
+  "fennick": {
+   "glow": "#c9b98a",
+   "animations": {
+    "idle": {
+     "file": "sheets/npc_fennick_idle.png",
+     "frames": 8,
+     "fps": 6,
+     "loop": true
+    },
+    "talk": {
+     "file": "sheets/npc_fennick_talk.png",
+     "frames": 8,
+     "fps": 8,
+     "loop": true
+    }
+   }
+  },
+  "wren": {
+   "glow": "#a6ec4f",
+   "animations": {
+    "idle": {
+     "file": "sheets/npc_wren_idle.png",
+     "frames": 8,
+     "fps": 6,
+     "loop": true
+    },
+    "talk": {
+     "file": "sheets/npc_wren_talk.png",
+     "frames": 8,
+     "fps": 8,
+     "loop": true
+    }
+   }
+  },
+  "vex": {
+   "glow": "#b07cff",
+   "animations": {
+    "idle": {
+     "file": "sheets/npc_vex_idle.png",
+     "frames": 8,
+     "fps": 6,
+     "loop": true
+    },
+    "talk": {
+     "file": "sheets/npc_vex_talk.png",
+     "frames": 8,
+     "fps": 8,
+     "loop": true
+    }
+   }
+  },
+  "gorran": {
+   "glow": "#e0453a",
+   "animations": {
+    "idle": {
+     "file": "sheets/npc_gorran_idle.png",
+     "frames": 8,
+     "fps": 6,
+     "loop": true
+    },
+    "talk": {
+     "file": "sheets/npc_gorran_talk.png",
+     "frames": 8,
+     "fps": 8,
+     "loop": true
+    }
+   }
+  },
+  "sable": {
+   "glow": "#d6e4f2",
+   "animations": {
+    "idle": {
+     "file": "sheets/npc_sable_idle.png",
+     "frames": 8,
+     "fps": 6,
+     "loop": true
+    },
+    "talk": {
+     "file": "sheets/npc_sable_talk.png",
+     "frames": 8,
+     "fps": 8,
+     "loop": true
+    }
+   }
+  },
+  "morvane": {
+   "glow": "#3ccf97",
+   "animations": {
+    "idle": {
+     "file": "sheets/npc_morvane_idle.png",
+     "frames": 8,
+     "fps": 6,
+     "loop": true
+    },
+    "talk": {
+     "file": "sheets/npc_morvane_talk.png",
+     "frames": 8,
+     "fps": 8,
+     "loop": true
+    }
+   }
+  },
+  "halvard": {
+   "glow": "#ff6a2e",
+   "animations": {
+    "idle": {
+     "file": "sheets/npc_halvard_idle.png",
+     "frames": 8,
+     "fps": 6,
+     "loop": true
+    },
+    "talk": {
+     "file": "sheets/npc_halvard_talk.png",
+     "frames": 8,
+     "fps": 8,
+     "loop": true
+    }
+   }
+  }
+ },
+ "trainers": {
+  "knight": "aldric",
+  "mage": "ilsa",
+  "vagabond": "fennick",
+  "druid": "wren",
+  "assassin": "vex",
+  "warlord": "gorran",
+  "hunter": "sable",
+  "necromancer": "morvane",
+  "doomknight": "halvard"
+ }
+}

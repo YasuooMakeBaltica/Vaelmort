@@ -31,7 +31,7 @@ const store = createStore();
 
 // ---------- static files ----------
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json', '.png': 'image/png', '.mp3': 'audio/mpeg', '.md': 'text/markdown; charset=utf-8' };
-const PUBLIC = [/^index\.html$/, /^admin\.html$/, /^src\/[a-z]+\.js$/, /^assets\/heroes\/heroes\.json$/, /^assets\/heroes\/sheets\/[a-z_]+\.png$/, /^assets\/foes\/foes\.json$/, /^assets\/foes\/[a-z_]+\.png$/, /^assets\/props\/props\.json$/, /^assets\/props\/[a-z_0-9]+\.png$/, /^assets\/music\/[a-z]+\.mp3$/, /^assets\/sfx\/sfx\.json$/, /^assets\/sfx\/[A-Za-z]+_\d+\.mp3$/];
+const PUBLIC = [/^index\.html$/, /^admin\.html$/, /^src\/[a-z]+\.js$/, /^assets\/heroes\/heroes\.json$/, /^assets\/heroes\/sheets\/[a-z_]+\.png$/, /^assets\/foes\/foes\.json$/, /^assets\/foes\/[a-z_]+\.png$/, /^assets\/props\/props\.json$/, /^assets\/npcs\/npcs\.json$/, /^assets\/npcs\/sheets\/[a-z_]+\.png$/, /^assets\/props\/[a-z_0-9]+\.png$/, /^assets\/music\/[a-z]+\.mp3$/, /^assets\/sfx\/sfx\.json$/, /^assets\/sfx\/[A-Za-z]+_\d+\.mp3$/];
 // every deploy gets a new version tag on the script links, so browsers never mix a new page with old cached code
 const BUILD = Date.now().toString(36);
 const indexHtml = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8')

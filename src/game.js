@@ -1138,14 +1138,19 @@
       } else if (it.k === 6) drawBanner(o, cx, cy);
       else if (it.k === 8) drawLoot(o, cx, cy, tags);
       else if (it.k === 7 && o.id) { // a quest giver
-        drawHero(o.cls, 'idle', o.row, frameOf('idle', G.t + o.phase, o.cls), o.x - cx, o.y - cy, 1, null);
+        const talking = G.talkNpc === o.id && !$('winTalk').hidden, an = talking && G.meta.heroes[o.cls].animations.talk ? 'talk' : 'idle';
+        o.row = V.gdist(L.x, L.y, o.x, o.y) < 240 ? dirRow(L.x - o.x, L.y - o.y) : 0;
+        drawHero(o.cls, an, o.row, frameOf(an, G.t + o.phase, o.cls), o.x - cx, o.y - cy, 1, null);
         addLight(o.x - cx, o.y - cy - 22, 70, V.NPCS[o.id].color, 0.55);
         const st = npcState(o.id);
         tags.push([o.name, -1, o.x - cx, o.y - cy - 64, V.NPCS[o.id].color, -1, `<${o.title}>`]);
         if (st) { const bob = Math.sin(G.t * 3) * 2; outlined(st === 'ready' ? '?' : st === 'open' ? '!' : '?', Math.round(o.x - cx), Math.round(o.y - cy - 84 + bob), st === 'prog' ? '#8f86a3' : '#ffd84a', 2); }
       }
-      else if (it.k === 7) {
-        drawHero(o.cls, 'idle', o.row, frameOf('idle', G.t + o.phase, o.cls), o.x - cx, o.y - cy, 1, null);
+      else if (it.k === 7) { // a trainer, in their own model when there is one
+        const lk = o.look || o.cls, near_ = V.gdist(L.x, L.y, o.x, o.y), talking = o.cls === L.cls && near_ < V.INTERACT + 40 && (!$('winTalents').hidden || !$('winEvolve').hidden);
+        const an = talking && G.meta.heroes[lk].animations.talk ? 'talk' : 'idle';
+        o.row = near_ < 240 ? dirRow(L.x - o.x, L.y - o.y) : 0;
+        drawHero(lk, an, o.row, frameOf(an, G.t + o.phase, lk), o.x - cx, o.y - cy, 1, null);
         addLight(o.x - cx, o.y - cy - 22, 60, glow(o.cls), 0.5);
         const pts = o.cls === L.cls && G.self && G.self.tp > 0;
         tags.push([(pts ? '! ' : '') + o.name, -1, o.x - cx, o.y - cy - 64, pts ? '#ffd84a' : '#9be38a', -1, o.title]);
@@ -1705,7 +1710,7 @@
   function renderTalk() {
     const id = G.talkNpc, N = V.NPCS[id]; if (!N) return;
     $('talkName').textContent = N.name; $('talkTitle').textContent = N.title; $('talkName').style.color = N.color;
-    drawPortrait($('talkPortrait'), N.look, 0);
+    drawPortrait($('talkPortrait'), G.meta.heroes['npc_' + id] ? 'npc_' + id : N.look, 0);
     const qs = G.quests, cards = [];
     const ready = V.QUESTS.filter((q) => q.to === id && qs.a[q.id] && V.questReady(q, qs.a[q.id]));
     const open = V.QUESTS.filter((q) => q.npc === id && V.questOpen(q, qs, L.level));
@@ -2576,6 +2581,16 @@
         jobs.push(new Promise((ok, bad) => { const im = new Image(); im.onload = () => ok(); im.onerror = () => bad(new Error('Missing sprite sheet ' + a.file)); im.src = ASSETS + a.file; G.sheets[cid][anim] = im; }));
       }
     }
+    const nres = await fetch('assets/npcs/npcs.json').catch(() => null); // quest givers' and trainers' own models
+    G.npcArt = {};
+    if (nres && nres.ok) {
+      const nm = await nres.json();
+      for (const [id, d] of Object.entries(nm.npcs || {})) {
+        const key = 'npc_' + id; G.meta.heroes[key] = { name: id, glow: d.glow, animations: d.animations }; G.sheets[key] = {};
+        for (const [anim, a] of Object.entries(d.animations)) jobs.push(new Promise((ok) => { const im = new Image(); im.onload = () => ok(); im.onerror = () => { delete G.meta.heroes[key]; ok(); }; im.src = 'assets/npcs/' + a.file; G.sheets[key][anim] = im; }));
+      }
+      for (const [cls, id] of Object.entries(nm.trainers || {})) G.npcArt[cls] = 'npc_' + id;
+    }
     const fres = await fetch('assets/foes/foes.json');
     if (!fres.ok) throw new Error('Could not load enemy data (' + fres.status + ')');
     G.foeMeta = await fres.json(); G.foeSheets = {};
@@ -2616,7 +2631,9 @@
     G.mini = V.paintMinimap(G.map);
     mini.width = G.mini.width; mini.height = G.mini.height;
     G.npcs = Object.keys(V.TRAINERS).map((cls, i) => { const [x, y] = V.trainerPos(cls), T = V.TRAINERS[cls]; return { x, y, cls, name: T.name, camp: T.camp, title: `<${G.meta.heroes[cls].name} Trainer>`, row: 0, phase: i * 0.37 }; });
-    G.qnpcs = Object.keys(V.NPCS).map((id, i) => { const [x, y] = V.npcPos(id), N = V.NPCS[id]; return { id, x, y, cls: N.look, name: N.name, title: N.title, camp: N.camp, row: 0, phase: i * 0.53 }; });
+    const art = (key, fallback) => (G.meta.heroes[key] && G.sheets[key] ? key : fallback);
+    for (const n of G.npcs) n.look = art(G.npcArt[n.cls], n.cls);
+    G.qnpcs = Object.keys(V.NPCS).map((id, i) => { const [x, y] = V.npcPos(id), N = V.NPCS[id]; return { id, x, y, cls: art('npc_' + id, N.look), name: N.name, title: N.title, camp: N.camp, row: 0, phase: i * 0.53 }; });
     G.over = { map: G.map, ground: G.ground, mini: G.mini, npcs: G.npcs };
     const [ox, oy] = V.toWorld(V.C, V.C);
     G.ground.warm(ox - 520, oy - 360, 1040, 720);
