@@ -73,12 +73,13 @@
     if (!G.started) return;
     if (typing()) document.activeElement.blur();
     if (anyWindow()) closeWindows();
+    if (G.touchOn && e.pointerType !== 'mouse') { touchTap(e); return; } // fingers play through the on-screen controls
     setMouse(e);
     if (e.button === 0) { const L = lootUnderMouse(); if (L) { if (G.link && G.link.pick) G.link.pick(L.id); return; } }
     if (e.button === 0) mouse.down = true;
     if (e.button === 2) { const p = G.mode === 'online' && playerUnderMouse(); if (p) { playerMenu(p, e); return; } wantSkill = 1; }
   });
-  addEventListener('pointerup', (e) => { if (e.button === 0) mouse.down = false; });
+  addEventListener('pointerup', (e) => { if (e.button === 0 && !(G.touchOn && e.pointerType !== 'mouse' && TOUCH.atk !== null)) mouse.down = false; });
   view.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // ---------- effects ----------
@@ -710,6 +711,7 @@
       if (keys.has('w') || keys.has('arrowup')) iy--;
       if (keys.has('s') || keys.has('arrowdown')) iy++;
     }
+    if (G.joy[0] || G.joy[1]) { ix = G.joy[0]; iy = G.joy[1]; } // the touch joystick
     const il = Math.hypot(ix, iy); if (il) { ix /= il; iy /= il; }
     const A = G.aim;
     if (wantDodge && L.cdDodge <= 0 && !L.dodge) {
@@ -1300,6 +1302,16 @@
         ctx.fillStyle = c; ctx.fillRect(dx > 0 ? sx : sx - 3, sy, 4, 1); ctx.fillRect(sx, dy > 0 ? sy : sy - 3, 1, 4);
       }
     }
+    if (G.touchOn) { // no cursor on a phone; a dragged skill shows where it will land instead
+      const T = G.touchAim;
+      if (T) {
+        const sx = Math.round(L.x - cx), sy = Math.round(L.y - cy), ex = Math.round(T.x - cx), ey = Math.round(T.y - cy), col = T.cancel ? '#8a8298' : glow(L.cls);
+        ctx.strokeStyle = hexA(col, 0.3); ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+        ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+        ellipse(ex, ey, 16, hexA(col, 0.15), col, 1);
+      }
+      return;
+    }
     const mx = Math.round(mouse.x), my = Math.round(mouse.y);
     ctx.fillStyle = '#05040a';
     ctx.fillRect(mx - 5, my - 1, 3, 3); ctx.fillRect(mx + 3, my - 1, 3, 3); ctx.fillRect(mx - 1, my - 5, 3, 3); ctx.fillRect(mx - 1, my + 3, 3, 3);
@@ -1487,7 +1499,7 @@
   function updatePrompt() {
     const t = (G.self && !G.self.dead) ? nearbyThing() : null;
     const txt = !t ? '' : t.kind === 'loot' ? `Pick up ${t.L.n}` : t.kind === 'board' ? 'Bounty Board' : t.kind === 'gate' ? `Enter ${V.DUNGEONS[t.z].name}` : t.kind === 'qnpc' ? `Talk to ${t.n.name}` : t.kind === 'exit' ? 'Leave the dungeon' : t.own ? `Train with ${t.n.name}` : `${t.n.name} · ${G.meta.heroes[t.n.cls].name} trainer`;
-    if (txt !== lastPrompt) { lastPrompt = txt; hud.prompt.hidden = !txt; hud.promptText.textContent = txt; }
+    if (txt !== lastPrompt) { lastPrompt = txt; hud.prompt.hidden = !txt; hud.promptText.textContent = txt; if (TOUCH.built) { $('tCtx').hidden = !txt; $('tCtx').textContent = txt; } }
     const at = V.nearTrainer(L.cls, L.x, L.y);
     if (at !== lastAtTrainer) { lastAtTrainer = at; if (!$('winTalents').hidden) renderTalents(); }
     if (!$('winBoard').hidden && !V.nearBoard(L.x, L.y, 60)) closeWindows();
@@ -1567,6 +1579,7 @@
       if (!$('winEvolve').hidden) renderEvolve();
     }
     updatePrompt();
+    updateTouchHud(s);
     const spect = G.dun && s.dl === 0;
     hud.death.hidden = !p.dead || spect; $('spectate').hidden = !(p.dead && spect);
     if (p.dead && !spect) hud.deathText.textContent = G.dun ? `Rising at the entrance in ${Math.max(1, Math.ceil(s.dead / 10))}… · ${s.dl} ${s.dl === 1 ? 'life' : 'lives'} left` : `Rising at Vaelmort Gate in ${Math.max(1, Math.ceil(s.dead / 10))}…`;
@@ -1691,6 +1704,193 @@
   $('btnQuests').addEventListener('click', () => toggleWindow('winQuests'));
   for (const b of document.querySelectorAll('.micro button')) if (!b.title) b.title = b.textContent.replace(/^\S+/, '').trim(); // names on hover when only keys show
   $('spectLeave').addEventListener('click', () => { if (G.link && G.link.leaveDungeon) G.link.leaveDungeon(); });
+
+  // ---------- touch controls (phones and tablets) ----------
+  // Left thumb: a joystick that appears where you touch. Right thumb: attack in the corner, skills on an arc around it
+  // (tap = cast at your target or the nearest enemy, hold and drag = aim it yourself, drag back onto the button = cancel),
+  // the ultimate further out, dodge to the left. A context button for talking, looting and entering; menus along the top.
+  const tget = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch (e) { return d; } };
+  const tset = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* private mode */ } };
+  const TOUCH = { joy: null, drag: null, atk: null, cast: null, built: false, key: '', full: false };
+  G.joy = [0, 0]; G.touchAim = null;
+  const coarse = () => { try { return matchMedia('(pointer: coarse)').matches; } catch (e) { return false; } };
+  const touchPref = () => tget('vael_touch', 'auto');
+  const tsz = () => clamp(+tget('vael_touch_size', '100') || 100, 80, 130) / 100;
+  const TU = document.createElement('div'); TU.id = 'touchui';
+  const TROT = document.createElement('div'); TROT.id = 'trotate'; TROT.innerHTML = '<div>Turn your phone sideways to play</div>';
+  $('game').appendChild(TU); $('game').appendChild(TROT);
+  const TSVG = { bag: '<path d="M6 8h12l-1 12H7z M9 8a3 3 0 0 1 6 0" fill="none" stroke="#e8dcc0" stroke-width="2"/>',
+    char: '<circle cx="12" cy="8" r="4" fill="none" stroke="#e8dcc0" stroke-width="2"/><path d="M4 21c0-5 4-7 8-7s8 2 8 7" fill="none" stroke="#e8dcc0" stroke-width="2"/>',
+    web: '<circle cx="12" cy="12" r="3" fill="#e8dcc0"/><circle cx="5" cy="6" r="2" fill="#e8dcc0"/><circle cx="19" cy="7" r="2" fill="#e8dcc0"/><circle cx="12" cy="20" r="2" fill="#e8dcc0"/><path d="M12 12L5 6M12 12l7-5M12 12v8" stroke="#e8dcc0" stroke-width="1.6"/>',
+    quest: '<path d="M7 4h10v16l-5-3-5 3z" fill="none" stroke="#ffd84a" stroke-width="2"/><path d="M12 7v5M12 14v1" stroke="#ffd84a" stroke-width="2"/>',
+    map: '<path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z M9 4v14 M15 6v14" fill="none" stroke="#e8dcc0" stroke-width="1.8"/>',
+    party: '<circle cx="9" cy="9" r="3" fill="none" stroke="#e8dcc0" stroke-width="2"/><circle cx="17" cy="10" r="2.5" fill="none" stroke="#e8dcc0" stroke-width="1.8"/><path d="M3 20c0-4 3-6 6-6s6 2 6 6 M15 19c0-3 1.5-4.5 4-4.5" fill="none" stroke="#e8dcc0" stroke-width="2"/>',
+    chat: '<path d="M4 5h16v11H9l-5 4z" fill="none" stroke="#e8dcc0" stroke-width="2"/>',
+    home: '<path d="M3 11l9-7 9 7 M6 9v11h12V9" fill="none" stroke="#3ccf97" stroke-width="2"/><path d="M10 20v-5h4v5" fill="none" stroke="#3ccf97" stroke-width="2"/>',
+    menu: '<path d="M5 7h14M5 12h14M5 17h14" stroke="#e8dcc0" stroke-width="2.2"/>' };
+  const TMENU = [['bag', 'winInv', 'Bags'], ['char', 'winChar', 'Character'], ['web', 'winTalents', 'Skill web'], ['quest', 'winQuests', 'Quests'], ['map', 'winMap', 'Map'],
+    ['party', 'winParty', 'Party'], ['chat', 'chat', 'Chat'], ['home', 'recall', 'Return to Vaelmort Gate'], ['menu', 'winMenu', 'Menu']];
+  // phones hide the browser bars in fullscreen and keep the screen sideways, where the browser allows it
+  function goFull() {
+    if (TOUCH.full) return; TOUCH.full = true;
+    const el = document.documentElement;
+    try { const r = el.requestFullscreen && el.requestFullscreen({ navigationUI: 'hide' }); if (r && r.then) r.then(() => { try { const o = screen.orientation && screen.orientation.lock && screen.orientation.lock('landscape'); if (o && o.catch) o.catch(() => {}); } catch (e) { /* not allowed */ } }).catch(() => {}); } catch (e) { /* not supported */ }
+  }
+  function buildTouch() {
+    TU.innerHTML = `<div id="tjoyzone"></div><div class="tring" id="tjoy"></div><div class="tring" id="tknob"></div><div class="tring" id="taimzone"></div>
+      <div class="tbtn" id="tAtk"><canvas width="32" height="32"></canvas></div>
+      ${[1, 2, 3, 4, 5, 6].map((i) => `<div class="tbtn tskill${i === 5 ? ' tult' : ''}" data-slot="${i}"><canvas width="32" height="32"></canvas><div class="tcd"></div></div>`).join('')}
+      <div class="tbtn" id="tDodge"><canvas width="32" height="32"></canvas></div>
+      <button type="button" class="tpill" id="tCtx" hidden></button>
+      <div id="tmenu">${TMENU.map(([k, w, n]) => `<button type="button" class="tmb" data-win="${w}" aria-label="${n}"><svg viewBox="0 0 24 24">${TSVG[k]}</svg></button>`).join('')}</div>`;
+    TOUCH.built = true; TOUCH.key = '';
+    TU.addEventListener('pointerdown', goFull);
+    const zone = $('tjoyzone'), joy = $('tjoy'), knob = $('tknob');
+    const joyMove = (e) => {
+      const J = TOUCH.joy; if (!J || e.pointerId !== J.id) return;
+      const R = 52 * tsz(), r = $('game').getBoundingClientRect(); let dx = e.clientX - J.ox, dy = e.clientY - J.oy; const d = Math.hypot(dx, dy);
+      if (d > R) { J.ox += dx * (1 - R / d); J.oy += dy * (1 - R / d); dx = e.clientX - J.ox; dy = e.clientY - J.oy; } // the base follows a thumb that runs past it
+      G.joy = Math.hypot(dx, dy) / R < 0.2 ? [0, 0] : [dx / R, dy / R];
+      joy.style.left = J.ox - r.left + 'px'; joy.style.top = J.oy - r.top + 'px'; knob.style.left = e.clientX - r.left + 'px'; knob.style.top = e.clientY - r.top + 'px';
+    };
+    zone.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); if (TOUCH.joy) return;
+      try { zone.setPointerCapture(e.pointerId); } catch (err) { /* already gone */ }
+      if (typing()) document.activeElement.blur();
+      TOUCH.joy = { id: e.pointerId, ox: e.clientX, oy: e.clientY }; joy.classList.add('on'); knob.classList.add('on'); joyMove(e);
+    });
+    const joyEnd = (e) => { if (!TOUCH.joy || e.pointerId !== TOUCH.joy.id) return; TOUCH.joy = null; G.joy = [0, 0]; joy.classList.remove('on'); knob.classList.remove('on'); layoutTouch(); };
+    zone.addEventListener('pointermove', joyMove); zone.addEventListener('pointerup', joyEnd); zone.addEventListener('pointercancel', joyEnd);
+    // attack: hold to keep swinging at whatever is auto-aimed
+    const atk = $('tAtk');
+    atk.addEventListener('pointerdown', (e) => { e.preventDefault(); try { atk.setPointerCapture(e.pointerId); } catch (err) { /* gone */ } TOUCH.atk = e.pointerId; touchAutoAim(false); mouse.down = true; atk.classList.add('down'); });
+    const atkEnd = (e) => { if (e.pointerId !== TOUCH.atk) return; TOUCH.atk = null; mouse.down = false; atk.classList.remove('down'); };
+    atk.addEventListener('pointerup', atkEnd); atk.addEventListener('pointercancel', atkEnd);
+    // skills: tap to cast at your target, hold and drag to aim, drag back onto the button to cancel
+    for (const b of TU.querySelectorAll('.tskill')) {
+      b.addEventListener('pointerdown', (e) => {
+        e.preventDefault(); if (TOUCH.drag) return;
+        try { b.setPointerCapture(e.pointerId); } catch (err) { /* gone */ }
+        const r = b.getBoundingClientRect();
+        TOUCH.drag = { id: e.pointerId, slot: +b.dataset.slot, cx: r.left + r.width / 2, cy: r.top + r.height / 2, rad: r.width / 2, sx: e.clientX, sy: e.clientY, aiming: false, b };
+        b.classList.add('down');
+      });
+      b.addEventListener('pointermove', (e) => {
+        const D = TOUCH.drag; if (!D || e.pointerId !== D.id) return;
+        if (!D.aiming && Math.hypot(e.clientX - D.sx, e.clientY - D.sy) > 12) {
+          D.aiming = true; const z = $('taimzone'), gr = $('game').getBoundingClientRect();
+          z.style.left = D.cx - gr.left + 'px'; z.style.top = D.cy - gr.top + 'px'; z.classList.add('on');
+        }
+        if (!D.aiming) return;
+        const dx = e.clientX - D.cx, dy = e.clientY - D.cy, d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d;
+        const reach = 40 + Math.min(1, d / (66 * tsz())) * 240, k = reach / Math.hypot(ux, uy * 2); // reach measured on the ground
+        G.touchAim = { x: L.x + ux * k, y: L.y + uy * k, cancel: d < D.rad };
+      });
+      const end = (e, cancelled) => {
+        const D = TOUCH.drag; if (!D || e.pointerId !== D.id) return;
+        TOUCH.drag = null; D.b.classList.remove('down'); $('taimzone').classList.remove('on');
+        const A = G.touchAim; G.touchAim = null;
+        if (cancelled || (D.aiming && A && A.cancel)) return;
+        if (D.slot === 6 && L.cls === 'lightborn' && !D.aiming) { // double-tap the sixth: the nuke, as on the keyboard
+          const now = performance.now();
+          if (now - (G.last6 || 0) < 350) { G.last6 = 0; if (G.link && G.link.nuke) G.link.nuke(); return; }
+          G.last6 = now;
+        }
+        if (D.aiming && A) TOUCH.cast = { x: A.x - G.cam.x, y: A.y - 22 - G.cam.y, until: G.t + 0.2 }; // hold the aim on that spot until the cast goes out
+        else touchAutoAim(false);
+        wantSkill = D.slot;
+      };
+      b.addEventListener('pointerup', (e) => end(e, false)); b.addEventListener('pointercancel', (e) => end(e, true));
+    }
+    $('tDodge').addEventListener('pointerdown', (e) => { e.preventDefault(); wantDodge = true; });
+    $('tCtx').addEventListener('click', () => interact());
+    for (const m of TU.querySelectorAll('.tmb')) m.addEventListener('click', () => {
+      const w = m.dataset.win;
+      if (w === 'chat') { if (G.mode === 'online') openChat(); }
+      else if (w === 'recall') { if (G.link && G.link.recall) G.link.recall(); }
+      else if (w === 'winMap' && G.dun) say('No map down here');
+      else toggleWindow(w);
+    });
+    layoutTouch();
+  }
+  // positions in CSS pixels measured from the bottom-right corner (the approved layout), scaled by the size setting
+  function layoutTouch() {
+    if (!TOUCH.built) return;
+    const r = $('game').getBoundingClientRect(), k = tsz(), Hc = r.height;
+    const place = (el, x, y, d) => { el.style.left = x + 'px'; el.style.top = y + 'px'; if (d) el.style.width = el.style.height = d + 'px'; };
+    const ax = r.width - 70 * k, ay = Hc - 66 * k, R = 116 * k, arc = [182, 150, 118, 86];
+    place($('tAtk'), ax, ay, 82 * k);
+    TU.querySelectorAll('.tskill').forEach((b, i) => {
+      if (i < 4) { const a = arc[i] * Math.PI / 180; place(b, ax + Math.cos(a) * R, ay - Math.sin(a) * R, 54 * k); }
+      else if (i === 4) { const a = 134 * Math.PI / 180; place(b, ax + Math.cos(a) * 196 * k, ay - Math.sin(a) * 196 * k, 62 * k); }
+      else place(b, ax - 205 * k, ay - 64 * k, 48 * k); // the Lightborn's sixth, above dodge
+    });
+    place($('tDodge'), ax - 205 * k, ay + 4 * k, 48 * k);
+    if (!TOUCH.joy) { place($('tjoy'), 96 * k, Hc - 96 * k); place($('tknob'), 96 * k, Hc - 96 * k); }
+    TU.style.setProperty('--tk', k);
+  }
+  // taps and attacks go at your target, else the nearest enemy in reach, else straight ahead
+  function touchAutoAim(fresh) {
+    const ok = (f) => f && !f.dead && !f.far && gdist(L.x, L.y, f.x, f.y) < 360;
+    let best = !fresh && ok(G.target) && G.t - G.targetT < 6 ? G.target : null;
+    if (!best) {
+      let bd = 1e9;
+      for (const f of G.foes) { if (!f || f.type === 'dummy' || !ok(f)) continue; const d = gdist(L.x, L.y, f.x, f.y); if (d < bd) { bd = d; best = f; } }
+      if (!best && ok(G.target)) best = G.target; // a training dummy you picked yourself
+    }
+    if (best) { mouse.x = best.x - G.cam.x; mouse.y = best.y - best.def.h * 0.45 - G.cam.y; return; }
+    const moving = Math.hypot(G.joy[0], G.joy[1]) > 0.2, a = moving ? Math.atan2(G.joy[1], G.joy[0]) : (G.aim ? G.aim.a : 0);
+    const ux = Math.cos(a), uy = Math.sin(a), k = 80 / Math.hypot(ux, uy * 2);
+    mouse.x = L.x + ux * k - G.cam.x; mouse.y = L.y + uy * k - 22 - G.cam.y;
+  }
+  function touchAimUpdate() {
+    if (TOUCH.cast && G.t < TOUCH.cast.until) { mouse.x = TOUCH.cast.x; mouse.y = TOUCH.cast.y; return; }
+    TOUCH.cast = null;
+    if (G.touchAim) { mouse.x = G.touchAim.x - G.cam.x; mouse.y = G.touchAim.y - 22 - G.cam.y; return; }
+    touchAutoAim(false);
+  }
+  // tapping the world: pick up loot, open a player's party options, or pick a target
+  function touchTap(e) {
+    const r = view.getBoundingClientRect(); mouse.x = (e.clientX - r.left) / S; mouse.y = (e.clientY - r.top) / S;
+    const lt = lootUnderMouse(); if (lt) { if (G.link && G.link.pick) G.link.pick(lt.id); return; }
+    const p = G.mode === 'online' && playerUnderMouse(); if (p) { playerMenu(p, e); return; }
+    const A = computeAim(); if (A.tgt) { G.target = A.tgt; G.targetT = G.t; }
+  }
+  // icons, cooldown sweeps and the context button, refreshed with the HUD
+  function updateTouchHud(s) {
+    if (!G.touchOn || !TOUCH.built) return;
+    const bar = barOf(), gl = glow(L.cls), key = L.cls + '|' + bar.join(',');
+    if (key !== TOUCH.key) {
+      TOUCH.key = key;
+      const draw = (c, name, col) => { const g = c.getContext('2d'); g.clearRect(0, 0, 32, 32); if (name) g.drawImage(V.icon(name, col, { bare: true }), 0, 0); };
+      draw($('tAtk').querySelector('canvas'), CLASSES[L.cls].basic.kind === 'shot' ? 'orb' : 'sword', gl);
+      draw($('tDodge').querySelector('canvas'), L.cls === 'lightborn' ? 'wing' : 'dash', '#e6dfc8');
+      $('tAtk').style.borderColor = gl;
+      TU.querySelectorAll('.tskill').forEach((b, i) => {
+        const sk = bar[i]; b.hidden = i >= V.barSize(L.cls);
+        draw(b.querySelector('canvas'), sk ? V.SKILL_ICON[sk] || 'star' : null, i === 4 ? '#f6c453' : gl); b.classList.toggle('empty', !sk);
+      });
+    }
+    TU.querySelectorAll('.tskill').forEach((b, i) => {
+      const sk = bar[i], def = sk && SKILLS[sk], cd = def ? selfCd(i) : 0, cdEl = b.lastElementChild;
+      const txt = cd > 0.05 ? (cd >= 10 ? String(Math.ceil(cd)) : cd.toFixed(1)) : '';
+      if (cdEl.textContent !== txt) { cdEl.textContent = txt; cdEl.style.background = txt ? `conic-gradient(rgba(0,0,0,.68) ${Math.min(100, 100 * cd / Math.max(0.1, def.cd)).toFixed(0)}%, rgba(0,0,0,.2) 0)` : 'none'; }
+      b.classList.toggle('dim', !!(def && s && s.res < def.cost));
+    });
+    const tp = TU.querySelector('[data-win="winTalents"]'); if (tp) tp.classList.toggle('has', s.tp > 0);
+  }
+  function setTouch(on) {
+    G.touchOn = on; document.body.classList.toggle('touch', on);
+    if (on && !TOUCH.built) buildTouch();
+    if (!on) { G.joy = [0, 0]; G.touchAim = null; TOUCH.joy = TOUCH.drag = TOUCH.cast = null; }
+    resize(); layoutTouch();
+  }
+  { // the settings in the menu
+    const sel = $('optTouch'), rng = $('optTouchSize');
+    sel.value = touchPref(); rng.value = String(Math.round(tsz() * 100));
+    sel.addEventListener('change', () => { tset('vael_touch', sel.value); setTouch(sel.value === 'on' || (sel.value === 'auto' && coarse())); });
+    rng.addEventListener('input', () => { tset('vael_touch_size', rng.value); TOUCH.key = ''; layoutTouch(); });
+  }
 
   // ---------- quests ----------
   // what a quest giver has for you: 'ready' (turn something in), 'open' (a new quest), 'prog' (waiting on you), or nothing
@@ -2533,6 +2733,7 @@
       }
     }
     if (G.started) {
+      if (G.touchOn) touchAimUpdate();
       G.aim = computeAim();
       updateLocal(dt);
       if (G.link) G.link.tick(dt);
@@ -2561,15 +2762,17 @@
   function resize() {
     const r = $('game').getBoundingClientRect();
     S = r.width < 720 ? 2 : clamp(Math.floor(Math.min(r.width / 600, r.height / 340)), 2, 4);
+    if (G.touchOn) { const dpr = window.devicePixelRatio || 1; S = clamp(Math.round(clamp(r.height / 290, 1, 4) * dpr) / dpr, 1, 4); } // phones: a little zoomed out, each game pixel a whole number of screen pixels
     W = Math.ceil(r.width / S); H = Math.ceil(r.height / S);
     view.width = W; view.height = H; light.width = W; light.height = H;
     view.style.width = W * S + 'px'; view.style.height = H * S + 'px';
     tview.width = Math.round(W * S * DPR()); tview.height = Math.round(H * S * DPR()); tview.style.width = view.style.width; tview.style.height = view.style.height;
     ctx.imageSmoothingEnabled = false; lctx.imageSmoothingEnabled = false;
+    if (G.touchOn) layoutTouch();
   }
 
   async function boot() {
-    resize();
+    setTouch(touchPref() === 'on' || (touchPref() === 'auto' && coarse()));
     addEventListener('resize', resize);
     const res = await fetch(ASSETS + 'heroes.json');
     if (!res.ok) throw new Error('Could not load hero data (' + res.status + ')');
